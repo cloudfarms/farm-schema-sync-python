@@ -1,0 +1,13 @@
+from pydantic import BaseModel
+from __future__ import annotations
+from models import OrgFarm
+
+class OrgHolding(BaseModel):
+    id: int
+    name: str
+    parent_id: int | None
+    external_id: str | None
+    customers_id: str | None
+    internal_name: str | None
+    farms: list[OrgFarm] | None
+    subholdings: list[OrgHolding] | None
