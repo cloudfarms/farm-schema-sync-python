@@ -12,7 +12,7 @@ class Client:
 
     def authenticate(self):
         authReq = AuthRequest(clientId=self.config.clientId, clientSecret=self.config.clientSecret)
-        response = self.client.post("/cfapi/auth", json=authReq.model_dump_json())
+        response = self.client.post("/cfapi/auth", data=authReq.model_dump_json())
         if response.status_code != 200:
             raise Exception("incorrect credentials")
         if not response.is_success:

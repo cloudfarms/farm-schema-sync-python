@@ -1,8 +1,9 @@
 from pydantic import BaseModel
+from typing import Optional
 class HoldingRow(BaseModel):
     id: int
     name: str
-    parent_id: int | None
-    external_id: str | None
-    customers_id: str | None
-    internal_name: str | None
+    parentId: Optional[int] = None
+    externalId: Optional[str] = None
+    customersId: Optional[str] = None
+    internalName: Optional[str] = None

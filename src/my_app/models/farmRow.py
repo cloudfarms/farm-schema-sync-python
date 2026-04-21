@@ -1,10 +1,12 @@
 from pydantic import BaseModel
+from typing import Optional
+
 class FarmRow(BaseModel):
     id: int
     name: str
-    holding_id: int
-    farm_type: str
-    time_zone: str
-    external_id: str | None
-    customers_id: str | None
-    internal_name: str | None
+    holdingId: int
+    farmType: str
+    timeZone: str
+    externalId: Optional[str] = None
+    customersId: Optional[str] = None
+    internalName: Optional[str] = None

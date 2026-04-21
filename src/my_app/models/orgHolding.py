@@ -6,9 +6,9 @@ from typing import Optional
 class OrgHolding(BaseModel):
     id: int
     name: str
-    parent_id: Optional[int]
-    external_id: Optional[str]
-    customers_id: Optional[str]
-    internal_name: Optional[str]
-    farms: Optional[list[OrgFarm]]
-    subholdings: Optional[list[OrgHolding]]
+    parentId: Optional[int] = None
+    externalId: Optional[str] = None
+    customersId: Optional[str] = None
+    internalName: Optional[str] = None
+    farms: Optional[list[OrgFarm]] = None
+    subholdings: Optional[list[OrgHolding]] = None

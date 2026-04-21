@@ -1,4 +1,6 @@
 from pydantic import BaseModel
+from typing import Optional
+
 class CsvMetadata(BaseModel):
-    requested_since: str | None
-    next_since: str | None
+    requestedSince: Optional[str] = None
+    nextSince: Optional[str] = None
