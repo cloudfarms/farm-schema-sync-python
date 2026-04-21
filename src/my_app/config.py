@@ -7,6 +7,9 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Config:
+    """
+        Storage for env variables
+    """
     baseUrl: str
     clientId: str
     clientSecret: str

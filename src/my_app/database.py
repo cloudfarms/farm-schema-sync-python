@@ -1,5 +1,5 @@
 import sqlite3
-from models import TableInfo
+from my_app.models import TableInfo
 
 class Database:
 
@@ -42,7 +42,7 @@ class Database:
             if col.name not in existing:
                 sqlType = self.jdbcToSqlite(col.jdbcType)
                 try:
-                    self.cursor.execute(f"alter table {table.name} add column {col.name} {sqlType}")
+                    self.cursor.execute(f"alter table {self.quote_ident(table.name)} add column {self.quote_ident(col.name)} {sqlType}")
                     self.conn.commit()
                     print(f'Added col {col.name} to {table.name}')
                     added += 1
@@ -56,13 +56,17 @@ class Database:
 
     def generateTable(self,table: TableInfo):
         parts = {jdbc.name: self.jdbcToSqlite(jdbc.jdbcType) for jdbc in table.columns}
-        partString = ", ".join(f"{k} {v}" for k,v in parts.items())
+        partString = ", ".join(f"{self.quote_ident(k)} {v}" for k,v in parts.items())
         primaryString = ""
         if len(table.key) > 0:
-            primaryString = f", PRIMARY KEY ({','.join(table.key)})"
-        self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {table.name} ({partString}{primaryString})")
+            primaryString = f", PRIMARY KEY ({','.join(self.quote_ident(k) for k in table.key)})"
+        print(primaryString)
+        self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self.quote_ident(table.name)} ({partString}{primaryString})")
         self.conn.commit()
         
+    def quote_ident(self, name: str) -> str:
+        escaped = name.replace('"', '""')
+        return f'"{escaped}"'
 
     def jdbcToSqlite(self, jdbc:int):
         matchDict = {

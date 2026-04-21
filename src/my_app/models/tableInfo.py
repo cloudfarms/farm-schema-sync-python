@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from models import RsColumnInfo
+from my_app.models import RsColumnInfo
 
 class TableInfo(BaseModel):
     name: str
