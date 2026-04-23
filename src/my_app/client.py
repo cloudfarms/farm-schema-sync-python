@@ -22,11 +22,11 @@ class Client:
     
     def getAllTables(self) -> list[TableInfo]:
         # needs to get both farm tables and holdings table
-        farmTables = self.getTables("/cfapi/farm/data-changes/tables")
-        holdingTables = self.getTables("/cfapi/holding/data-changes/tables")
+        farmTables = self._getTables("/cfapi/farm/data-changes/tables")
+        holdingTables = self._getTables("/cfapi/holding/data-changes/tables")
         return farmTables + holdingTables
 
-    def getTables(self, path: str) -> list[TableInfo]:
+    def _getTables(self, path: str) -> list[TableInfo]:
         response = self.client.get(f"{path}")
         if response.status_code == 401:
             raise Exception("Missing or invalid auth token")
