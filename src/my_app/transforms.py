@@ -1,4 +1,4 @@
-from my_app.models import OrgHolding, HoldingRow, FarmRow
+from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo
 
 class Transforms:
     """
@@ -29,3 +29,11 @@ class Transforms:
             if holding.subholdings is not None:
                 rows.extend(Transforms.collectFarms(holding.subholdings))
         return rows
+    
+    @staticmethod
+    def buildKeyMap(tables: list[TableInfo]) -> dict[str, list[str]]:
+        keymap = {}
+        for table in tables:
+            keymap[table.name] = table.key
+        
+        return keymap

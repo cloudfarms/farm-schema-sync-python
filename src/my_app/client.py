@@ -1,6 +1,10 @@
-from my_app.config import Config
 import httpx
-from my_app.models import AuthRequest, AuthResponse, TableInfo, OrgHolding
+import csv
+from my_app.config import Config
+from my_app.models import AuthRequest, AuthResponse, TableInfo, OrgHolding, SectionItem, SyncItem
+from my_app.enums import State, CsvOperation
+from typing import Optional, Union
+from my_app.pipelineChannel import PipelineChannel
 
 class Client:
     """
@@ -9,6 +13,7 @@ class Client:
     def __init__(self, config:Config):
         self.config = config
         self.client = httpx.Client(base_url=config.baseUrl)
+        self.state = State.START
 
     def authenticate(self):
         authReq = AuthRequest(clientId=self.config.clientId, clientSecret=self.config.clientSecret)
@@ -44,3 +49,71 @@ class Client:
         if not response.is_success:
             raise Exception(f"Failed to get holdings")
         return [OrgHolding.model_validate(item) for item in response.json()]
+    
+    async def holdingChangesProducer(self, path:str, since:Optional[str]):
+        if since is not None:
+            path = f"{path}?since={since}"
+        async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
+            async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
+                if r.status_code == 401:
+                    raise Exception("Missing or invalid auth token")
+                if r.status_code == 403:
+                    raise Exception("No access")
+                if not r.is_success:
+                    raise Exception(f"Something went wrong")
+                async for line in r.aiter_lines():
+                    if line:
+                        """
+                        Add logic for metadata header, then metadata rows 
+                        """
+                        parsed = self.parseLine(line)
+                        if parsed is not None:
+                            await self.channel.queue.put(parsed)
+            await self.channel.queue.put(None)
+    
+    def parseLine(self, line:Optional[str]) -> Optional[Union[SectionItem, SyncItem]]:
+        """
+        Parses lines to more easily readable stuff for consumer. If return is None, line is ignored 
+        """
+        if self.state == State.START:
+            if line is None:
+                raise Exception("Invalid CSV Response: empty body")
+            if line.strip() != "data":
+                raise Exception(f"Invalid CSV Response: expected first line to be \"data\", got {line}")
+            self.state = State.METADATA_HEADER
+            return None
+
+        line = line.strip()
+
+        if line == "*":
+            return None
+
+        if len(line.split(",")) == 1 and len(line.split("_")) > 1:
+            self.state = State.SECTION_NAME
+
+        if not line:
+            return None
+
+        if self.state == State.METADATA_HEADER:
+            self.state = State.METEDATA_ROW
+            return {"type": State.METADATA_HEADER, "data": list(csv.reader([line]))[0]}
+        
+        if self.state == State.METEDATA_ROW:
+            self.state = State.WAIT
+            return {"type": State.METEDATA_ROW, "data": list(csv.reader([line]))[0]}
+
+        if self.state == State.SECTION_NAME:
+            operation = line.split("_")[-1]
+            tableName = "_".join(line.split("_")[:-1])
+            self.state = State.HEADER
+            return {"type": State.SECTION_NAME, "table": tableName , "operation": CsvOperation(operation)}
+
+        if self.state == State.HEADER:
+            self.state = State.ROWS
+            return {"type" : State.HEADER, "data": list(csv.reader([line]))[0]}
+        
+        if self.state == State.ROWS:
+            return {"type": State.ROWS, "data": list(csv.reader([line]))[0]}
+        
+    def setChannel(self, channel: PipelineChannel):
+        self.channel = channel

@@ -2,10 +2,16 @@ from my_app.config import config
 from my_app.client import Client
 from my_app.database import Database
 from my_app.transforms import Transforms
+from my_app.asyncController import AsyncController
+from my_app.pipelineChannel import PipelineChannel
 import sys
 import re
+import asyncio
 
 def main():
+    asyncio.run(run())
+
+async def run():
     client = Client(config)
     client.authenticate()
     tables = client.getAllTables()
@@ -40,6 +46,24 @@ def main():
     print("\nORGANIZATION SYNC COMPLETE")
     print(f"---Holdings upserted {results['holdingsUpserted']}")
     print(f"---Farms upserted {results['farmsUpserted']}")
+
+    keyMap = Transforms.buildKeyMap(tables)
+
+    holdingIds = dbClient.readHoldingIds()
+    farmIds = dbClient.readFarmIds()
+
+    print(f"\nSyncing data changes for {len(holdingIds)} holdings and {len(farmIds)} farms")
+
+    totalUpserted = 0
+    totalDeleted = 0
+    holdingsProcessed = 0
+    farmsProcessed = 0
+
+    for holdingId, nextSince in holdingIds:
+        print(f"Holding {holdingId} (since: {nextSince})")
+        path = f"/cfapi/holding/{holdingId}/data-changes"
+        controller = AsyncController(client, dbClient)
+        await controller.run(path, nextSince)
 
 if __name__ == "__main__":
     main()

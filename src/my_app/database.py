@@ -1,6 +1,8 @@
 import sqlite3
 from my_app.models import TableInfo, HoldingRow, FarmRow
-from typing import TypedDict
+from my_app.enums import State, CsvOperation
+from typing import TypedDict, Optional
+from my_app.pipelineChannel import PipelineChannel
 
 class _SchemaResults(TypedDict):
         tablesCreated: int
@@ -77,6 +79,7 @@ class Database:
         except:
             raise Exception(f"Failed to create table holding")
         
+        self.cursor.execute("BEGIN")
         holdingsUpserted = 0
         for hold in holdingRows:
             try:
@@ -115,6 +118,69 @@ class Database:
         self.conn.commit()
         return {"holdingsUpserted": holdingsUpserted, "farmsUpserted": farmsUpserted}
 
+    def readHoldingIds(self)-> list[tuple[int, Optional[str]]]:
+        try:
+            self.cursor.execute('SELECT "id", "next_since" FROM "holding" WHERE "parent_id" IS NULL')
+            rows = self.cursor.fetchall()
+            return rows
+        except Exception as e:
+            raise Exception(f"Failed to collect holding IDs: {e}")
+
+    def readFarmIds(self) -> list[tuple[int, Optional[str]]]:
+        try:
+            self.cursor.execute('select "id", "next_since" from "farm"')
+            rows = self.cursor.fetchall()
+            return rows
+        except Exception as e:
+            raise Exception(f"Failed to collect farm IDs: {e}")
+
+    async def applyDataChangesConsumer(self):
+        self.cursor.execute("BEGIN")
+        batch = []
+        tableName: str = None
+        sections: list[str] = None
+        operation: CsvOperation = None
+        while True:
+            item = await self.channel.queue.get()
+            if item is None:
+                break
+            
+            if item["type"] == State.SECTION_NAME:
+                # if the batch is not empty (previous table data was not all added), add it first
+                if len(batch) > 0:
+                    self._applyDataChange(tableName, operation, sections, batch)
+                tableName = item["table"]
+                operation = item["operation"]
+                continue
+
+            if item["type"] == State.HEADER:
+                sections = item["data"]
+                continue
+
+            if item["type"] == State.ROWS:
+                batch.append(item["data"])
+
+            if len(batch) >= 200:
+                # self.cursor.executemany()
+                self._applyDataChange(tableName, operation, sections, batch)
+        if batch:
+            self._applyDataChange(tableName, operation, sections, batch)
+        self.conn.commit()
+    
+    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: tuple[str], batch: list[list]):
+        if operation == CsvOperation.UPSERT:
+            self._upsert(tableName, sections, batch)
+        if operation == CsvOperation.DELETE:
+            self._delete(tableName)
+        batch.clear()
+    
+    def _upsert(self, tableName: str, sections: tuple[str], values: list[tuple]):
+        sql = f"insert or replace into {self._quote_ident(tableName)} ({', '.join(sections)}) values ({', '.join(['?'] * len(sections))})"
+        self.cursor.executemany(sql, values)
+
+    def _delete(self, tableName: str):
+        print(f'trying to delete from {tableName}')
+
     def _getExistingCols(self,tableName:str) -> list[str]:
         self.cursor.execute(f"PRAGMA table_info({tableName})")
         try:
@@ -129,6 +195,7 @@ class Database:
             if col.name not in existing:
                 sqlType = self._jdbcToSqlite(col.jdbcType)
                 try:
+                    self.cursor.execute("BEGIN")
                     self.cursor.execute(f"alter table {self._quote_ident(table.name)} add column {self._quote_ident(col.name)} {sqlType}")
                     self.conn.commit()
                     print(f'Added col {col.name} to {table.name}')
@@ -147,6 +214,7 @@ class Database:
         primaryString = ""
         if len(table.key) > 0:
             primaryString = f", PRIMARY KEY ({','.join(self._quote_ident(k) for k in table.key)})"
+        self.cursor.execute("BEGIN")
         self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self._quote_ident(table.name)} ({partString}{primaryString})")
         self.conn.commit()
         
@@ -187,3 +255,6 @@ class Database:
         except:
             sqlite = "TEXT"
         return sqlite
+
+    def setChannel(self, channel: PipelineChannel):
+        self.channel = channel

@@ -1,5 +1,5 @@
 from enum import Enum
 
-class CsvOperation(str, Enum):
-    UPSERT = "upsert"
-    DELETE = "delete"
+class CsvOperation(str,Enum):
+    UPSERT = "upserted"
+    DELETE = "deleted"
