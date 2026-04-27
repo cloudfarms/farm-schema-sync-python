@@ -4,7 +4,8 @@ from my_app.config import Config
 from my_app.models import AuthRequest, AuthResponse, TableInfo, OrgHolding, SectionItem, SyncItem
 from my_app.enums import State, CsvOperation
 from typing import Optional, Union
-from my_app.pipelineChannel import PipelineChannel
+from my_app.pipelineChannel import PipelineChannel 
+from my_app.transforms import Transforms
 
 class Client:
     """
@@ -17,7 +18,7 @@ class Client:
 
     def authenticate(self):
         authReq = AuthRequest(clientId=self.config.clientId, clientSecret=self.config.clientSecret)
-        response = self.client.post("/cfapi/auth", data=authReq.model_dump_json())
+        response = self.client.post("/cfapi/auth", data=authReq.model_dump_json()) #type: ignore[reportArgumentType]
         if response.status_code != 200:
             raise Exception("incorrect credentials")
         if not response.is_success:
@@ -53,6 +54,7 @@ class Client:
     async def holdingChangesProducer(self, path:str, since:Optional[str]):
         if since is not None:
             path = f"{path}?since={since}"
+        self.state = State.START
         async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
             async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
                 if r.status_code == 401:
@@ -83,6 +85,9 @@ class Client:
             self.state = State.METADATA_HEADER
             return None
 
+        if not line:
+            return None
+
         line = line.strip()
 
         if line == "*":
@@ -91,16 +96,15 @@ class Client:
         if len(line.split(",")) == 1 and len(line.split("_")) > 1:
             self.state = State.SECTION_NAME
 
-        if not line:
-            return None
-
         if self.state == State.METADATA_HEADER:
             self.state = State.METEDATA_ROW
-            return {"type": State.METADATA_HEADER, "data": list(csv.reader([line]))[0]}
+            self.channel.updateHeader = list(csv.reader([line]))[0] # save update data for later
+            return None
         
         if self.state == State.METEDATA_ROW:
             self.state = State.WAIT
-            return {"type": State.METEDATA_ROW, "data": list(csv.reader([line]))[0]}
+            self.channel.updateRow = list(csv.reader([line]))[0] # save update data for later
+            return None
 
         if self.state == State.SECTION_NAME:
             operation = line.split("_")[-1]
@@ -113,7 +117,16 @@ class Client:
             return {"type" : State.HEADER, "data": list(csv.reader([line]))[0]}
         
         if self.state == State.ROWS:
-            return {"type": State.ROWS, "data": list(csv.reader([line]))[0]}
-        
+            # take into account partial lines, which can be in quotes
+            parsed, isDone = Transforms.parseCsvLine(line, self.buffer is not None, self.buffer)
+            if isDone:
+                return {"type": State.ROWS, "data": parsed}
+            else:
+                self.buffer = parsed
+                return None
+
+
+    
     def setChannel(self, channel: PipelineChannel):
         self.channel = channel
+        self.buffer = None

@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 from my_app.pipelineChannel import PipelineChannel
 from my_app.client import Client
 from my_app.database import Database
@@ -11,5 +12,5 @@ class AsyncController:
         self.producer = apiClient
         self.consumer = dbClient
 
-    async def run(self, url:str, since: str):
+    async def run(self, url:str, since: Optional[str]):
         await asyncio.gather(self.producer.holdingChangesProducer(url, since), self.consumer.applyDataChangesConsumer())

@@ -7,11 +7,13 @@ from my_app.pipelineChannel import PipelineChannel
 import sys
 import re
 import asyncio
+import time
 
 def main():
     asyncio.run(run())
 
 async def run():
+    startTime = time.time()
     client = Client(config)
     client.authenticate()
     tables = client.getAllTables()
@@ -47,8 +49,6 @@ async def run():
     print(f"---Holdings upserted {results['holdingsUpserted']}")
     print(f"---Farms upserted {results['farmsUpserted']}")
 
-    keyMap = Transforms.buildKeyMap(tables)
-
     holdingIds = dbClient.readHoldingIds()
     farmIds = dbClient.readFarmIds()
 
@@ -59,11 +59,63 @@ async def run():
     holdingsProcessed = 0
     farmsProcessed = 0
 
-    for holdingId, nextSince in holdingIds:
-        print(f"Holding {holdingId} (since: {nextSince})")
+    for holdingId, since in holdingIds:
+        print(f"Holding {holdingId} (since: {since})...", end="")
         path = f"/cfapi/holding/{holdingId}/data-changes"
         controller = AsyncController(client, dbClient)
-        await controller.run(path, nextSince)
+        await controller.run(path, since)
+
+        results = controller.channel.results
+        totalUpserted += results['rowsUpserted']
+        totalDeleted += results['rowsDeleted']
+        holdingsProcessed += 1
+        print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted")
+        try:
+            lastSinceIndex = controller.channel.updateHeader.index("requestedSince")
+            lastSince = controller.channel.updateRow[lastSinceIndex]
+        except:
+            lastSince = None
+
+        try:
+            nextSinceIndex = controller.channel.updateHeader.index("nextSince")
+            nextSince = controller.channel.updateRow[nextSinceIndex]
+        except:
+            nextSince = None
+        # update metadata for next time the app is run
+        dbClient.updateHoldingMetadata(holdingId, lastSince, nextSince)
+
+    for farmId, since in farmIds:
+        print(f"Farm {farmId} (since: {since})...", end="")
+        path = f"/cfapi/farm/{farmId}/data-changes"
+        controller = AsyncController(client, dbClient)
+        await controller.run(path, since)
+
+        results = controller.channel.results
+        totalUpserted += results['rowsUpserted']
+        totalDeleted += results['rowsDeleted']
+        holdingsProcessed += 1
+
+        print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted")
+        try:
+            lastSinceIndex = controller.channel.updateHeader.index("requestedSince")
+            lastSince = controller.channel.updateRow[lastSinceIndex]
+        except:
+            lastSince = None
+
+        try:
+            nextSinceIndex = controller.channel.updateHeader.index("nextSince")
+            nextSince = controller.channel.updateRow[nextSinceIndex]
+        except:
+            nextSince = None
+        # update metadata for next time the app is run
+        dbClient.updateFarmMetadata(farmId, lastSince, nextSince)
+
+    print("\nDATA SYNC COMPLETE:")
+    print(f"Holdings processed: {holdingsProcessed}")
+    print(f"Farms processed: {farmsProcessed}")
+    print(f"Total rows upserted: {totalUpserted}")
+    print(f"Total rows deleted: {totalDeleted}")
+    print(f"Took {startTime - time.time()} seconds")
 
 if __name__ == "__main__":
     main()

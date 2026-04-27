@@ -1,7 +1,7 @@
 import sqlite3
-from my_app.models import TableInfo, HoldingRow, FarmRow
+from my_app.models import TableInfo, HoldingRow, FarmRow, SectionItem, SyncItem, DataSyncResult
 from my_app.enums import State, CsvOperation
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, cast
 from my_app.pipelineChannel import PipelineChannel
 
 class _SchemaResults(TypedDict):
@@ -20,7 +20,7 @@ class Database:
         self.cursor = self.conn.cursor()
     
     def execSchema(self, tables: list[TableInfo]) -> _SchemaResults:
-        results = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
+        results: _SchemaResults = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
         for table in tables:
             exists = self._tableExists(table.name)
             if exists:
@@ -137,15 +137,16 @@ class Database:
     async def applyDataChangesConsumer(self):
         self.cursor.execute("BEGIN")
         batch = []
-        tableName: str = None
-        sections: list[str] = None
-        operation: CsvOperation = None
+        tableName: str = None # type: ignore
+        sections: list[str] = None # type: ignore
+        operation: CsvOperation = None # type: ignore
         while True:
             item = await self.channel.queue.get()
             if item is None:
                 break
             
             if item["type"] == State.SECTION_NAME:
+                item = cast(SectionItem, item) # tell type checker that this is section item
                 # if the batch is not empty (previous table data was not all added), add it first
                 if len(batch) > 0:
                     self._applyDataChange(tableName, operation, sections, batch)
@@ -154,10 +155,12 @@ class Database:
                 continue
 
             if item["type"] == State.HEADER:
-                sections = item["data"]
+                item = cast(SyncItem, item)
+                sections = cast(list[str], item["data"])
                 continue
 
             if item["type"] == State.ROWS:
+                item = cast(SyncItem, item)
                 batch.append(item["data"])
 
             if len(batch) >= 200:
@@ -166,20 +169,40 @@ class Database:
         if batch:
             self._applyDataChange(tableName, operation, sections, batch)
         self.conn.commit()
-    
-    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: tuple[str], batch: list[list]):
+   
+    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: list[str], batch: list[list]):
         if operation == CsvOperation.UPSERT:
             self._upsert(tableName, sections, batch)
+            self.channel.results["rowsUpserted"] += len(batch)
         if operation == CsvOperation.DELETE:
-            self._delete(tableName)
+            self._delete(tableName, sections, batch)
+            self.channel.results["rowsDeleted"] += len(batch)
         batch.clear()
     
-    def _upsert(self, tableName: str, sections: tuple[str], values: list[tuple]):
-        sql = f"insert or replace into {self._quote_ident(tableName)} ({', '.join(sections)}) values ({', '.join(['?'] * len(sections))})"
+    def _upsert(self, tableName: str, sections: list[str], values: list[list]):
+        try:
+            sql = f"insert or replace into {self._quote_ident(tableName)} ({', '.join(sections)}) values ({', '.join(['?'] * len(sections))})"
+            self.cursor.executemany(sql, values)
+        except Exception as e:
+            for row in values:
+                if len(row) < 40:
+                    print(row)
+                    raise Exception("too short for row")
+
+    def _delete(self, tableName: str, sections: list[str], values: list[list]):
+        whereClauses = [f"{self._quote_ident(where)} = ?" for where in sections]
+        sql = f"DELETE FROM {self._quote_ident(tableName)} WHERE {' AND '.join(whereClauses)}"
         self.cursor.executemany(sql, values)
 
-    def _delete(self, tableName: str):
-        print(f'trying to delete from {tableName}')
+    def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str], nextSince: Optional[str]):
+        sql = f"UPDATE \"holding\" SET \"last_since\" = ?, \"next_since\" = ? WHERE \"id\" = ?"
+        self.cursor.execute(sql, (lastSince, nextSince, holdingId))
+        self.conn.commit()
+
+    def updateFarmMetadata(self, farmId: int, lastSince: Optional[str], nextSince: Optional[str]):
+        sql = f"UPDATE \"farm\" SET \"last_since\" = ?, \"next_since\" = ? WHERE \"id\" = ?"
+        self.cursor.execute(sql, (lastSince, nextSince, farmId))
+        self.conn.commit()
 
     def _getExistingCols(self,tableName:str) -> list[str]:
         self.cursor.execute(f"PRAGMA table_info({tableName})")
