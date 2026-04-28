@@ -156,7 +156,7 @@ class Database:
 
             if item["type"] == State.HEADER:
                 item = cast(SyncItem, item)
-                sections = cast(list[str], item["data"])
+                sections = list(cast(list[str], item["data"]))
                 continue
 
             if item["type"] == State.ROWS:
@@ -180,14 +180,17 @@ class Database:
         batch.clear()
     
     def _upsert(self, tableName: str, sections: list[str], values: list[list]):
+        # failingRow = None
         try:
             sql = f"insert or replace into {self._quote_ident(tableName)} ({', '.join(sections)}) values ({', '.join(['?'] * len(sections))})"
             self.cursor.executemany(sql, values)
+            # for row in values:
+            #     failingRow = row
+            #     self.cursor.execute(sql, row)
         except Exception as e:
-            for row in values:
-                if len(row) < 40:
-                    print(row)
-                    raise Exception("too short for row")
+            # print(sql)
+            # print(failingRow)
+            raise Exception("row does not match structure")
 
     def _delete(self, tableName: str, sections: list[str], values: list[list]):
         whereClauses = [f"{self._quote_ident(where)} = ?" for where in sections]

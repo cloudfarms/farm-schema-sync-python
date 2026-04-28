@@ -93,7 +93,7 @@ async def run():
         results = controller.channel.results
         totalUpserted += results['rowsUpserted']
         totalDeleted += results['rowsDeleted']
-        holdingsProcessed += 1
+        farmsProcessed += 1
 
         print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted")
         try:
@@ -115,7 +115,7 @@ async def run():
     print(f"Farms processed: {farmsProcessed}")
     print(f"Total rows upserted: {totalUpserted}")
     print(f"Total rows deleted: {totalDeleted}")
-    print(f"Took {startTime - time.time()} seconds")
+    print(f"Took {time.time() - startTime} seconds")
 
 if __name__ == "__main__":
     main()

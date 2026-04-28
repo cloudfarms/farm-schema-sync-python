@@ -17,6 +17,7 @@ class Client:
         self.state = State.START
 
     def authenticate(self):
+        print("Authenticating...")
         authReq = AuthRequest(clientId=self.config.clientId, clientSecret=self.config.clientSecret)
         response = self.client.post("/cfapi/auth", data=authReq.model_dump_json()) #type: ignore[reportArgumentType]
         if response.status_code != 200:
@@ -55,6 +56,7 @@ class Client:
         if since is not None:
             path = f"{path}?since={since}"
         self.state = State.START
+        currentTable = ""
         async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
             async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
                 if r.status_code == 401:
@@ -120,6 +122,7 @@ class Client:
             # take into account partial lines, which can be in quotes
             parsed, isDone = Transforms.parseCsvLine(line, self.buffer is not None, self.buffer)
             if isDone:
+                self.buffer = None
                 return {"type": State.ROWS, "data": parsed}
             else:
                 self.buffer = parsed
