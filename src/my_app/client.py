@@ -56,23 +56,24 @@ class Client:
         if since is not None:
             path = f"{path}?since={since}"
         self.state = State.START
-        currentTable = ""
-        async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
-            async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
-                if r.status_code == 401:
-                    raise Exception("Missing or invalid auth token")
-                if r.status_code == 403:
-                    raise Exception("No access")
-                if not r.is_success:
-                    raise Exception(f"Something went wrong")
-                async for line in r.aiter_lines():
-                    if line:
-                        """
-                        Add logic for metadata header, then metadata rows 
-                        """
-                        parsed = self.parseLine(line)
-                        if parsed is not None:
-                            await self.channel.queue.put(parsed)
+        try:
+            async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
+                async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
+                    if r.status_code == 401:
+                        raise Exception(f"Missing or invalid auth token: {path}")
+                    if r.status_code == 403:
+                        raise Exception(f"No access: {path}")
+                    if not r.is_success:
+                        raise Exception(f"Something went wrong: {path}")
+                    async for line in r.aiter_lines():
+                        if line:
+                            """
+                            Add logic for metadata header, then metadata rows 
+                            """
+                            parsed = self.parseLine(line)
+                            if parsed is not None:
+                                await self.channel.queue.put(parsed)
+        finally:
             await self.channel.queue.put(None)
     
     def parseLine(self, line:Optional[str]) -> Optional[Union[SectionItem, SyncItem]]:
@@ -99,11 +100,11 @@ class Client:
             self.state = State.SECTION_NAME
 
         if self.state == State.METADATA_HEADER:
-            self.state = State.METEDATA_ROW
+            self.state = State.METADATA_ROW
             self.channel.updateHeader = list(csv.reader([line]))[0] # save update data for later
             return None
         
-        if self.state == State.METEDATA_ROW:
+        if self.state == State.METADATA_ROW:
             self.state = State.WAIT
             self.channel.updateRow = list(csv.reader([line]))[0] # save update data for later
             return None
@@ -127,6 +128,8 @@ class Client:
             else:
                 self.buffer = parsed
                 return None
+        
+        return None
 
 
     

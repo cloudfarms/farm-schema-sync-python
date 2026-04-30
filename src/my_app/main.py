@@ -3,7 +3,6 @@ from my_app.client import Client
 from my_app.database import Database
 from my_app.transforms import Transforms
 from my_app.asyncController import AsyncController
-from my_app.pipelineChannel import PipelineChannel
 import sys
 import re
 import asyncio
@@ -22,8 +21,8 @@ async def run():
         dbName = sys.argv[1]
         if re.fullmatch(r"\w+\.db", dbName) is None:
             print("Invalid name for database. Database files must end with .db")
-            exit(0)
-    except:
+            sys.exit(1)
+    except Exception:
         dbName = "farmSync.db"
     
     print(f"DATABASE NAME: {dbName}")

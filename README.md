@@ -48,10 +48,10 @@ python -m venv .venv
 .venv/scripts/activate.bat
 ```
 
-***Linux/MacOs***
+***Linux/macOs***
 ```bash
 python3 -m venv .venv
-source .venv/scripts/activate
+source .venv/bin/activate
 ```
 
 ## App installation

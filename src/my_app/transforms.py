@@ -1,5 +1,6 @@
-from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo
+from my_app.models import OrgHolding, HoldingRow, FarmRow
 from typing import Optional
+from io import StringIO
 
 class Transforms:
     """
@@ -37,11 +38,11 @@ class Transforms:
             Due to some csv records being spread among more lines, we need to handle them properly 
         """
         parameters = []
-        buffer = ""
+        buffer = StringIO()
         if isContinue:
             if oldParams is None:
                 raise Exception("Old parameter list is empty. It must contain some values")
-            buffer = oldParams[-1]
+            buffer.write(oldParams[-1])
             parameters = oldParams[:-1]
 
         isInQuotes = isContinue        
@@ -51,39 +52,20 @@ class Transforms:
                     if i+1 >= len(line) or line[i+1] == ",":
                         isInQuotes = False
                 else:
-                    buffer = buffer + ch
+                    buffer.write(ch)
             else:
                 if ch == "\"":
                     isInQuotes = True
                 elif ch == ",":
-                    parameters.append(buffer)
-                    buffer = ""
+                    parameters.append(buffer.getvalue())
+                    buffer.seek(0)
+                    buffer.truncate(0)
                     if i+1 >= len(line):
                         parameters.append("")
                 else:
-                    buffer = buffer + ch
+                    buffer.write(ch)
         if isInQuotes:
-            buffer = buffer + "\n"
-        if len(buffer) > 0:
-            parameters.append(buffer)
+            buffer.write("\n")
+        if len(buffer.getvalue()) > 0:
+            parameters.append(buffer.getvalue())
         return (parameters, not isInQuotes)
-
-
-if __name__ == "__main__":
-    csv = """8640,52319217,P06X7285,18035,2020-09-03,Glenn Weaver,,,,,,N,N,N,N,N,N,N,,,,,,,,,,2457675511,2,served,,2022-10-01T15:34:55.859680Z,-1,2025-12-03T12:22:40.452698Z,-1,
-8640,52319218,P06X7888,18036,2020-09-12,Glenn Weaver,,,,,,N,N,N,N,N,N,N,,,,,,,,,,2,2,inactive,,2022-10-01T15:34:55.859680Z,-1,2025-12-03T12:22:40.452698Z,-1,
-8640,52319219,P06X8498,18037,2020-09-16,Glenn Weaver,,,,"
-
-",,N,N,N,N,N,N,N,,,,,,,,,,2457675511,2,inactive,,2022-10-01T15:34:55.859680Z,-1,2023-04-30T04:52:32.707817Z,-1,"""
-    isContinue = False
-    oldParams = None
-    finished = []
-    for line in csv.split("\n"):
-        res, isDone = Transforms.parseCsvLine(line, isContinue, oldParams)
-        isContinue = not isDone
-        if isContinue:
-            oldParams = res
-        else:
-            finished.append(res)
-    print("")
-    print(finished)
