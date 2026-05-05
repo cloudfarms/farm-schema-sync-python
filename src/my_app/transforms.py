@@ -1,11 +1,13 @@
 from my_app.models import OrgHolding, HoldingRow, FarmRow
+from typing import Optional
+from io import StringIO
 
 class Transforms:
     """
         Handles other logic, such as transformation of data 
     """
     @staticmethod
-    def flatten_holdings(holdings: list[OrgHolding], parentId: int) -> list[HoldingRow]:
+    def flatten_holdings(holdings: list[OrgHolding], parentId: Optional[int]) -> list[HoldingRow]:
         rows = []
         for holding in holdings:
             row = HoldingRow.model_validate({"id": holding.id, "name": holding.name, "parentId": parentId,
@@ -29,3 +31,41 @@ class Transforms:
             if holding.subholdings is not None:
                 rows.extend(Transforms.collectFarms(holding.subholdings))
         return rows
+
+    @staticmethod
+    def parseCsvLine(line: str, isContinue: bool, oldParams: Optional[list[str]])-> tuple[list[str], bool]:
+        """
+            Due to some csv records being spread among more lines, we need to handle them properly 
+        """
+        parameters = []
+        buffer = StringIO()
+        if isContinue:
+            if oldParams is None:
+                raise Exception("Old parameter list is empty. It must contain some values")
+            buffer.write(oldParams[-1])
+            parameters = oldParams[:-1]
+
+        isInQuotes = isContinue        
+        for i, ch in enumerate(line):
+            if isInQuotes:
+                if ch == "\"":
+                    if i+1 >= len(line) or line[i+1] == ",":
+                        isInQuotes = False
+                else:
+                    buffer.write(ch)
+            else:
+                if ch == "\"":
+                    isInQuotes = True
+                elif ch == ",":
+                    parameters.append(buffer.getvalue())
+                    buffer.seek(0)
+                    buffer.truncate(0)
+                    if i+1 >= len(line):
+                        parameters.append("")
+                else:
+                    buffer.write(ch)
+        if isInQuotes:
+            buffer.write("\n")
+        if len(buffer.getvalue()) > 0:
+            parameters.append(buffer.getvalue())
+        return (parameters, not isInQuotes)
