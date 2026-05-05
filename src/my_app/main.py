@@ -1,8 +1,11 @@
-from my_app.config import config
+from my_app.config import loadConfig, loadDbConfig
+from my_app.enums import Dialect
 from my_app.client import Client
-from my_app.database import Database
+from my_app.db import DbFactory
 from my_app.transforms import Transforms
 from my_app.asyncController import AsyncController
+from my_app.models import ServerDbConfig, SqliteDbConfig
+import argparse
 import sys
 import re
 import asyncio
@@ -13,20 +16,34 @@ def main():
 
 async def run():
     startTime = time.time()
-    client = Client(config)
-    client.authenticate()
-    tables = client.getAllTables()
     # argument parsing and verification
+    parser = argparse.ArgumentParser() 
+    parser.add_argument("-db", "--dbName", help="Name of database file to use", nargs="?", default="farmSync.db")
+    parser.add_argument("-d", "--dialect", help="Database dialect to use", choices=["sqlite", "mysql", "postgres", "mssql"], default="sqlite")
+
+    args = parser.parse_args()
     try:
-        dbName = sys.argv[1]
+        dbName = args.dbName
         if re.fullmatch(r"\w+\.db", dbName) is None:
             print("Invalid name for database. Database files must end with .db")
             sys.exit(1)
     except Exception:
         dbName = "farmSync.db"
-    
-    print(f"DATABASE NAME: {dbName}")
-    dbClient = Database(dbName)
+
+    dialect = Dialect(args.dialect)
+    print(f"SELECTED DIALECT: {dialect}")
+    if dialect == Dialect.SQLITE:
+        print(f"DATABASE NAME: {dbName}")
+        dbConfig = SqliteDbConfig.model_validate({"dbName": dbName})
+    else:
+        dbConfig = ServerDbConfig.model_validate(loadDbConfig().__dict__)
+        print(f'DATABASE NAME: {dbConfig.dbName}')
+
+    config = loadConfig()
+    client = Client(config)
+    client.authenticate()
+    tables = client.getAllTables()
+    dbClient = DbFactory().createDb(dbConfig, dialect)
     results = dbClient.execSchema(tables)
 
     print("\nSCHEMA SYNC COMPLETE:")

@@ -1,42 +1,21 @@
+from my_app.db import BaseDatabase
 import sqlite3
-import psycopg2
-from psycopg2.extensions import connection
-from sqlite3 import Connection
-from my_app.models import TableInfo, HoldingRow, FarmRow, SectionItem, SyncItem, ServerDbConfig, SqliteDbConfig
+from my_app.models import *
 from my_app.enums import State, CsvOperation, Dialect
-from typing import TypedDict, Optional, cast, Union
-from my_app.pipelineChannel import PipelineChannel
+from typing import Optional, cast, Union
 from my_app.transforms import Transforms
 
-class _SchemaResults(TypedDict):
-        tablesCreated: int
-        tablesExisting: int
-        colsAdded: int
 
-class _OrgSyncResult(TypedDict):
-    holdingsUpserted: int
-    farmsUpserted: int
+class SqliteDatabase(BaseDatabase[SqliteDbConfig]):
 
-class Database:
-
-    def __init__(self,config:Union[ServerDbConfig, SqliteDbConfig], dialect:Dialect):
-        self.conn = self._getConnection(config, dialect)
-        self.dialect = dialect
+    def __init__(self,config:SqliteDbConfig)->None:
+        self.conn = sqlite3.connect(config.dbName)
+        self.dialect = Dialect.SQLITE
         self.cursor = self.conn.cursor()
 
-    def _getConnection(self, config: Union[ServerDbConfig, SqliteDbConfig], dialect:Dialect)-> Union[Connection, connection]: 
-        if dialect == Dialect.SQLITE:
-            config = cast(SqliteDbConfig, config)
-            return sqlite3.connect(config.dbName)
-        if dialect == Dialect.POSTGRES:
-            config = cast(ServerDbConfig, config)
-            return psycopg2.connect(dbname=config.dbName, user=config.dbUser, password=config.dbPassword, host=config.dbHost, port=config.dbPort)
-        
-        raise Exception("No connection configured for current dialect")
 
-
-    def execSchema(self, tables: list[TableInfo]) -> _SchemaResults:
-        results: _SchemaResults = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
+    def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
+        results: SchemaResults = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
         for table in tables:
             exists = self._tableExists(table.name)
             if exists:
@@ -56,7 +35,7 @@ class Database:
                 raise Exception(f"Failed to create table {table.name}: {e}")
         return results
     
-    def syncOrgData(self,holdingRows: list[HoldingRow], farmRows: list[FarmRow])-> _OrgSyncResult:
+    def syncOrgData(self,holdingRows: list[HoldingRow], farmRows: list[FarmRow])-> OrgSyncResult:
         HOLDING_DDL = """
             CREATE TABLE IF NOT EXISTS "holding" (
             "id" INTEGER PRIMARY KEY,
@@ -205,14 +184,14 @@ class Database:
     
     def _upsert(self, tableName: str, sections: list[str], values: list[list]):
         try:
-            sql = f"insert or replace into {self.quoteIdent(tableName)} ({', '.join([self.quoteIdent(section) for section in sections])}) values ({', '.join(['?'] * len(sections))})"
+            sql = f"insert or replace into {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) values ({', '.join(['?'] * len(sections))})"
             self.cursor.executemany(sql, values)
         except Exception as e:
             raise Exception(f"row does not match structure: {e}")
 
     def _delete(self, tableName: str, sections: list[str], values: list[list]):
-        whereClauses = [f"{self.quoteIdent(where)} = ?" for where in sections]
-        sql = f"DELETE FROM {self.quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"
+        whereClauses = [f"{self._quoteIdent(where)} = ?" for where in sections]
+        sql = f"DELETE FROM {self._quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"
         self.cursor.executemany(sql, values)
 
     def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str], nextSince: Optional[str]):
@@ -239,7 +218,7 @@ class Database:
             if col.name not in existing:
                 sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
                 try:
-                    self.cursor.execute(f"alter table {self.quoteIdent(table.name)} add column {self.quoteIdent(col.name)} {sqlType}")
+                    self.cursor.execute(f"alter table {self._quoteIdent(table.name)} add column {self._quoteIdent(col.name)} {sqlType}")
                     self.conn.commit()
                     print(f'Added col {col.name} to {table.name}')
                     added += 1
@@ -248,32 +227,15 @@ class Database:
         return added
 
     def _tableExists(self,tableName: str) -> bool:
-        if self.dialect == Dialect.SQLITE:
-            self.cursor.execute(f"SELECT 1 FROM sqlite_master WHERE type='table' AND name= ?", (tableName,))
-            return self.cursor.fetchone() is not None
-        if self.dialect == Dialect.POSTGRES:
-            query = """
-                    SELECT 1
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                    AND table_name = %s
-                    """
-            self.cursor.execute(query, (tableName,))
-            return self.cursor.fetchone() is not None
-        raise Exception("Not implemented for current dialect")
+        self.cursor.execute(f"SELECT 1 FROM sqlite_master WHERE type='table' AND name= ?", (tableName,))
+        return self.cursor.fetchone() is not None
 
     def _generateTable(self,table: TableInfo) -> None:
         parts = {jdbc.name: Transforms.jdbcToDialect(jdbc.jdbcType, self.dialect) for jdbc in table.columns}
-        partString = ", ".join(f"{self.quoteIdent(k)} {v}" for k,v in parts.items())
+        partString = ", ".join(f"{self._quoteIdent(k)} {v}" for k,v in parts.items())
         primaryString = ""
         if len(table.key) > 0:
-            primaryString = f", PRIMARY KEY ({','.join(self.quoteIdent(k) for k in table.key)})"
-        self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self.quoteIdent(table.name)} ({partString}{primaryString})")
+            primaryString = f", PRIMARY KEY ({','.join(self._quoteIdent(k) for k in table.key)})"
+        self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} ({partString}{primaryString})")
         self.conn.commit()
         
-    def quoteIdent(self, name: str) -> str:
-        escaped = name.replace('"', '""')
-        return f'"{escaped}"'
-
-    def setChannel(self, channel: PipelineChannel)->None:
-        self.channel = channel

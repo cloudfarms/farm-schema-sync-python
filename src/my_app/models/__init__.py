@@ -10,5 +10,9 @@ from .farmRow import FarmRow
 from .sectionItem import SectionItem
 from .syncItem import SyncItem
 from .dataSyncResult import DataSyncResult
+from .dbConfig import ServerDbConfig, SqliteDbConfig
+from .orgSyncResult import OrgSyncResult
+from .schemaResults import SchemaResults
 
-__all__ = ["AuthRequest", "AuthResponse", "RsColumnInfo", "TableInfo", "ApiError", "OrgFarm", "OrgHolding", "HoldingRow", "FarmRow", "SectionItem", "SyncItem", "DataSyncResult"]
+__all__ = ["AuthRequest", "AuthResponse", "RsColumnInfo", "TableInfo", "ApiError", "OrgFarm", "OrgHolding", "HoldingRow", "FarmRow", 
+           "SectionItem", "SyncItem", "DataSyncResult", "ServerDbConfig", "SqliteDbConfig", "OrgSyncResult", "SchemaResults"]

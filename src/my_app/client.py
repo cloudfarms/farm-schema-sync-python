@@ -136,3 +136,4 @@ class Client:
     def setChannel(self, channel: PipelineChannel):
         self.channel = channel
         self.buffer = None
+        self.context = {"table": None, "cols": None, "translation": None}

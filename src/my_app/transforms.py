@@ -1,4 +1,6 @@
 from my_app.models import OrgHolding, HoldingRow, FarmRow
+from my_app.enums import Dialect
+from my_app.dbMappingTypes import SQLITE_TYPES, POSTGRES_TYPES
 from typing import Optional
 from io import StringIO
 
@@ -69,3 +71,11 @@ class Transforms:
         if len(buffer.getvalue()) > 0:
             parameters.append(buffer.getvalue())
         return (parameters, not isInQuotes)
+
+    @staticmethod
+    def jdbcToDialect(jdbc: int, dialect: Dialect) -> str:
+        if dialect == Dialect.SQLITE:
+            return SQLITE_TYPES.get(jdbc, "TEXT")
+        if dialect == Dialect.POSTGRES:
+            return POSTGRES_TYPES.get(jdbc, "TEXT")
+        raise Exception("Unknown dialect")

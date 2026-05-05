@@ -1,4 +1,3 @@
-# load env file here properly
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -14,6 +13,17 @@ class Config:
     clientId: str
     clientSecret: str
 
+@dataclass(frozen=True)
+class DbConfig:
+    """
+        Storage for database related env variables
+    """
+    dbName: str
+    dbHost: str
+    dbPort: int
+    dbUser: str
+    dbPassword: str
+
 def requireEnv(name: str) -> str:
     val = os.getenv(name)
     if not val:
@@ -28,4 +38,11 @@ def loadConfig() -> Config:
     clientSecret = requireEnv("CF_CLIENT_SECRET")
     )
 
-config = loadConfig()
+def loadDbConfig() -> DbConfig:
+    return DbConfig(
+        dbName = requireEnv("DB_NAME"),
+        dbHost = requireEnv("DB_HOST"),
+        dbPort = int(requireEnv("DB_PORT")),
+        dbUser = requireEnv("DB_USER"),
+        dbPassword = requireEnv("DB_PASSWORD")
+    )
