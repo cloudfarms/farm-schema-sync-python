@@ -2,7 +2,7 @@ from my_app.db import BaseDatabase
 import sqlite3
 from my_app.models import *
 from my_app.enums import State, CsvOperation, Dialect
-from typing import Optional, cast, Union
+from typing import Optional, cast
 from my_app.transforms import Transforms
 
 

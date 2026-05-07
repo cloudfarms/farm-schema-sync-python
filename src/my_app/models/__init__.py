@@ -13,6 +13,9 @@ from .dataSyncResult import DataSyncResult
 from .dbConfig import ServerDbConfig, SqliteDbConfig
 from .orgSyncResult import OrgSyncResult
 from .schemaResults import SchemaResults
+from .pythonColumnInfo import PythonColumnInfo
+from .pythonTableInfo import PythonTableInfo
 
 __all__ = ["AuthRequest", "AuthResponse", "RsColumnInfo", "TableInfo", "ApiError", "OrgFarm", "OrgHolding", "HoldingRow", "FarmRow", 
-           "SectionItem", "SyncItem", "DataSyncResult", "ServerDbConfig", "SqliteDbConfig", "OrgSyncResult", "SchemaResults"]
+           "SectionItem", "SyncItem", "DataSyncResult", "ServerDbConfig", "SqliteDbConfig", "OrgSyncResult", "SchemaResults",
+           "PythonColumnInfo", "PythonTableInfo"]

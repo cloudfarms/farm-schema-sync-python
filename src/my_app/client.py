@@ -1,11 +1,10 @@
 import httpx
-import csv
 from my_app.config import Config
-from my_app.models import AuthRequest, AuthResponse, TableInfo, OrgHolding, SectionItem, SyncItem
-from my_app.enums import State, CsvOperation
-from typing import Optional, Union
+from my_app.models import AuthRequest, AuthResponse, TableInfo, OrgHolding,PythonTableInfo
+from my_app.enums import State
+from typing import Optional
 from my_app.pipelineChannel import PipelineChannel 
-from my_app.transforms import Transforms
+from my_app.parser import Parser
 
 class Client:
     """
@@ -52,10 +51,10 @@ class Client:
             raise Exception(f"Failed to get holdings")
         return [OrgHolding.model_validate(item) for item in response.json()]
     
-    async def holdingChangesProducer(self, path:str, since:Optional[str]):
+    async def holdingChangesProducer(self, path:str, since:Optional[str], tableMap: dict[str, PythonTableInfo]):
         if since is not None:
             path = f"{path}?since={since}"
-        self.state = State.START
+        parser = Parser(self.channel)
         try:
             async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
                 async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
@@ -70,70 +69,13 @@ class Client:
                             """
                             Add logic for metadata header, then metadata rows 
                             """
-                            parsed = self.parseLine(line)
+                            parsed = parser.parseLine(line)
                             if parsed is not None:
+                                parsed = parser.translateToPython(parsed, tableMap)
                                 await self.channel.queue.put(parsed)
         finally:
             await self.channel.queue.put(None)
     
-    def parseLine(self, line:Optional[str]) -> Optional[Union[SectionItem, SyncItem]]:
-        """
-        Parses lines to more easily readable stuff for consumer. If return is None, line is ignored 
-        """
-        if self.state == State.START:
-            if line is None:
-                raise Exception("Invalid CSV Response: empty body")
-            if line.strip() != "data":
-                raise Exception(f"Invalid CSV Response: expected first line to be \"data\", got {line}")
-            self.state = State.METADATA_HEADER
-            return None
-
-        if not line:
-            return None
-
-        line = line.strip()
-
-        if line == "*":
-            return None
-
-        if len(line.split(",")) == 1 and len(line.split("_")) > 1:
-            self.state = State.SECTION_NAME
-
-        if self.state == State.METADATA_HEADER:
-            self.state = State.METADATA_ROW
-            self.channel.updateHeader = list(csv.reader([line]))[0] # save update data for later
-            return None
-        
-        if self.state == State.METADATA_ROW:
-            self.state = State.WAIT
-            self.channel.updateRow = list(csv.reader([line]))[0] # save update data for later
-            return None
-
-        if self.state == State.SECTION_NAME:
-            operation = line.split("_")[-1]
-            tableName = "_".join(line.split("_")[:-1])
-            self.state = State.HEADER
-            return {"type": State.SECTION_NAME, "table": tableName , "operation": CsvOperation(operation)}
-
-        if self.state == State.HEADER:
-            self.state = State.ROWS
-            return {"type" : State.HEADER, "data": list(csv.reader([line]))[0]}
-        
-        if self.state == State.ROWS:
-            # take into account partial lines, which can be in quotes
-            parsed, isDone = Transforms.parseCsvLine(line, self.buffer is not None, self.buffer)
-            if isDone:
-                self.buffer = None
-                return {"type": State.ROWS, "data": parsed}
-            else:
-                self.buffer = parsed
-                return None
-        
-        return None
-
-
-    
     def setChannel(self, channel: PipelineChannel):
         self.channel = channel
         self.buffer = None
-        self.context = {"table": None, "cols": None, "translation": None}

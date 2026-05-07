@@ -1,8 +1,10 @@
-from my_app.models import OrgHolding, HoldingRow, FarmRow
+from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo, PythonColumnInfo, PythonTableInfo
 from my_app.enums import Dialect
-from my_app.dbMappingTypes import SQLITE_TYPES, POSTGRES_TYPES
-from typing import Optional
+from my_app.dbMappingTypes import *
+from typing import Optional, Any
 from io import StringIO
+from datetime import datetime, date, time
+from decimal import Decimal
 
 class Transforms:
     """
@@ -79,3 +81,38 @@ class Transforms:
         if dialect == Dialect.POSTGRES:
             return POSTGRES_TYPES.get(jdbc, "TEXT")
         raise Exception("Unknown dialect")
+    
+    @staticmethod
+    def jdbcToPython(jdbc: int) -> type:
+        return PYTHON_TYPES.get(jdbc, str)
+    
+    @staticmethod
+    def getTableMap(tables: list[TableInfo]):
+        finalTables = {}
+        for table in tables:
+            cols = []
+            for col in table.columns:
+                colType = Transforms.jdbcToPython(col.jdbcType)
+                cols.append(PythonColumnInfo(name=col.name, typeName=colType))
+            finalTables[table.name] = PythonTableInfo(name=table.name, columns=cols, key=table.key)
+        return finalTables
+
+    @staticmethod
+    def strToType(col: str, type: type)-> Any:
+        if col == "":
+            return None
+        if type == str:
+            return col
+        if type == int:
+            return int(col)
+        if type == float:
+            return float(col)
+        if type == bool:
+            if col.lower() == "n":
+                return False
+            return True
+        if type == bytes:
+            return col.encode('utf-8')
+
+        # default to string
+        return col

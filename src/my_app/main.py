@@ -43,6 +43,8 @@ async def run():
     client = Client(config)
     client.authenticate()
     tables = client.getAllTables()
+    # create table map
+    tableMap = Transforms.getTableMap(tables)
     dbClient = DbFactory().createDb(dbConfig, dialect)
     results = dbClient.execSchema(tables)
 
@@ -78,7 +80,7 @@ async def run():
     for holdingId, since in holdingIds:
         print(f"Holding {holdingId} (since: {since})...", end="")
         path = f"/cfapi/holding/{holdingId}/data-changes"
-        controller = AsyncController(client, dbClient)
+        controller = AsyncController(client, dbClient, tableMap)
         await controller.run(path, since)
 
         results = controller.channel.results
@@ -103,7 +105,7 @@ async def run():
     for farmId, since in farmIds:
         print(f"Farm {farmId} (since: {since})...", end="")
         path = f"/cfapi/farm/{farmId}/data-changes"
-        controller = AsyncController(client, dbClient)
+        controller = AsyncController(client, dbClient, tableMap)
         await controller.run(path, since)
 
         results = controller.channel.results
