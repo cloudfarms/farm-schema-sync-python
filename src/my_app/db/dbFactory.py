@@ -8,6 +8,6 @@ class DbFactory:
         if dialect == Dialect.SQLITE:
             config = cast(SqliteDbConfig, config)
             return SqliteDatabase(config)
-        # if dialect == Dialect.POSTGRES:
-        #     return PostgresDatabase(config)
+        if dialect == Dialect.POSTGRES:
+            return PostgresDatabase(config)
         raise Exception("Unknown dialect")

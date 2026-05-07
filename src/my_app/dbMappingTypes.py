@@ -27,10 +27,10 @@ SQLITE_TYPES = {
 
 POSTGRES_TYPES = {
     12: "TEXT",
-    1: "CHAR", 
+    1: "TEXT", 
     -1: "TEXT",
     -9: "TEXT",
-    -15: "CHAR",
+    -15: "TEXT",
     -16: "TEXT",
     -5: "BIGINT",
     -6: "SMALLINT",
