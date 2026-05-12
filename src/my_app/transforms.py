@@ -78,6 +78,8 @@ class Transforms:
             return SQLITE_TYPES.get(jdbc, "TEXT")
         if dialect == Dialect.POSTGRES:
             return POSTGRES_TYPES.get(jdbc, "TEXT")
+        if dialect == Dialect.MYSQL:
+            return MYSQL_TYPES.get(jdbc, "TEXT")
         raise Exception("Unknown dialect")
     
     @staticmethod
@@ -112,5 +114,4 @@ class Transforms:
         if type == bytes:
             return col.encode('utf-8')
 
-        # default to string
         return col

@@ -52,6 +52,39 @@ POSTGRES_TYPES = {
     2004: "BYTEA"
 }
 
+MYSQL_TYPES = {
+    12: "VARCHAR",
+    1: "VARCHAR", 
+    -1: "VARCHAR",
+    -9: "VARCHAR",
+    -15: "VARCHAR",
+    -16: "VARCHAR",
+
+    -5: "BIGINT",
+    -6: "TINYINT",
+    5: "SMALLINT",
+
+    4: "INT",
+    2: "DECIMAL",
+    3: "DECIMAL",
+
+    7: "FLOAT",
+    8: "DOUBLE",
+    6: "DOUBLE",
+
+    -7: "BOOLEAN",
+    16: "BOOLEAN",
+
+    93: "DATETIME",
+    92: "TIME",
+    91: "DATE",
+
+    -4: "BLOB",
+    -3: "BLOB",
+    -2: "BLOB",
+    2004: "BLOB"
+}
+
 PYTHON_TYPES = {
     12: str,
     1: str,

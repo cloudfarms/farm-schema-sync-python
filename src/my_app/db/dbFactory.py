@@ -9,5 +9,9 @@ class DbFactory:
             config = cast(SqliteDbConfig, config)
             return SqliteDatabase(config)
         if dialect == Dialect.POSTGRES:
+            config = cast(ServerDbConfig, config)
             return PostgresDatabase(config)
+        if dialect == Dialect.MYSQL:
+            config = cast(ServerDbConfig, config)
+            return MySqlDatabase(config)
         raise Exception("Unknown dialect")
