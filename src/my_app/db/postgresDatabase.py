@@ -4,6 +4,7 @@ from my_app.enums import State, CsvOperation, Dialect
 from typing import Optional, cast
 from my_app.transforms import Transforms
 import psycopg2
+from psycopg2.extras import execute_values, execute_batch
 from io import StringIO
 
 class PostgresDatabase(BaseDatabase[ServerDbConfig]):
@@ -219,8 +220,8 @@ class PostgresDatabase(BaseDatabase[ServerDbConfig]):
             conflictQuery = f"{conflictQuery} {updateSet.getvalue()[:-2]}"
 
         try:
-            sql = f"insert into {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) values ({', '.join(['%s'] * len(sections))}) {conflictQuery}"
-            self.cursor.executemany(sql, values)
+            sql = f"insert into {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) values %s {conflictQuery}"
+            execute_values(self.cursor, sql, values)
         except Exception as e:
             raise Exception(f"row does not match structure: {e}")
 

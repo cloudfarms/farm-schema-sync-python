@@ -56,7 +56,7 @@ class Client:
             path = f"{path}?since={since}"
         parser = Parser(self.channel)
         try:
-            async with httpx.AsyncClient(base_url=self.config.baseUrl) as client:
+            async with httpx.AsyncClient(base_url=self.config.baseUrl, timeout=60.0) as client:
                 async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
                     if r.status_code == 401:
                         raise Exception(f"Missing or invalid auth token: {path}")
