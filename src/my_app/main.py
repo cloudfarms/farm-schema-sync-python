@@ -129,11 +129,11 @@ async def run():
         dbClient.updateFarmMetadata(farmId, lastSince, nextSince)
 
     print("\nDATA SYNC COMPLETE:")
-    print(f"Holdings processed: {holdingsProcessed}")
-    print(f"Farms processed: {farmsProcessed}")
-    print(f"Total rows upserted: {totalUpserted}")
-    print(f"Total rows deleted: {totalDeleted}")
-    print(f"Took {time.time() - startTime} seconds")
+    print(f"---Holdings processed: {holdingsProcessed}")
+    print(f"---Farms processed: {farmsProcessed}")
+    print(f"---Total rows upserted: {totalUpserted}")
+    print(f"---Total rows deleted: {totalDeleted}")
+    print(f"---Took {time.time() - startTime} seconds")
 
 if __name__ == "__main__":
     main()

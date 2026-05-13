@@ -248,12 +248,7 @@ class MySqlDatabase(BaseDatabase[ServerDbConfig]):
             if col.name not in existing:
                 sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
                 try:
-                    finalType = sqlType
-                    if sqlType == "VARCHAR":
-                        if col.precision > 1024:
-                            finalType = "TEXT"
-                        else:
-                            finalType = f"VARCHAR({col.precision})"
+                    finalType = Transforms.addPrecision(col.precision, sqlType) 
                     self.cursor.execute(f"alter table {self._quoteIdent(table.name)} add column {self._quoteIdent(col.name)} {finalType}")
                     self.conn.commit()
                     print(f'Added col {col.name} to {table.name}')
@@ -271,14 +266,8 @@ class MySqlDatabase(BaseDatabase[ServerDbConfig]):
         partString = StringIO()
         for col, info in parts.items():
             type, precision = info
-            if type == "VARCHAR":
-                if precision > 1024:
-                    partString.write(f"{self._quoteIdent(col)} TEXT")
-                else:
-                    partString.write(f"{self._quoteIdent(col)} {type}")
-                    partString.write(f"({precision})")
-            else:
-                partString.write(f"{self._quoteIdent(col)} {type}")
+            partString.write(f"{self._quoteIdent(col)}")
+            partString.write(f" {Transforms.addPrecision(precision, type)}")
             partString.write(", ")
 
         primaryString = ""

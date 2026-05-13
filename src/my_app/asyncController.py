@@ -7,7 +7,7 @@ from my_app.models import PythonTableInfo
 
 class AsyncController:
     def __init__(self, apiClient: Client, dbClient: BaseDatabase, tableMap: dict[str, PythonTableInfo]):
-        self.channel = PipelineChannel()
+        self.channel = PipelineChannel(dbClient.dialect)
         apiClient.setChannel(self.channel)
         dbClient.setChannel(self.channel)
         self.producer = apiClient

@@ -26,7 +26,7 @@ class Parser:
             if self.translation is None:
                 raise Exception("Translation is not set for this table")
             for i, col in enumerate(line["data"]):
-                cols.append(Transforms.strToType(col, self.translation.columns[i].typeName))
+                cols.append(Transforms.strToType(col, self.translation.columns[i].typeName, self.channel.dialect))
             line["data"] = cols
         return line
     

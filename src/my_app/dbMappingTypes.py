@@ -1,3 +1,5 @@
+from datetime import time, datetime
+
 SQLITE_TYPES = {
             12: "TEXT",
             1: "TEXT",
@@ -103,9 +105,9 @@ PYTHON_TYPES = {
     6: float,
     -7: bool,
     16: bool,
-    93: str,
-    92: str,
-    91: str,
+    93: datetime,
+    92: time, 
+    91: str, 
     -4: bytes,
     -3: bytes,
     -2: bytes,

@@ -1,8 +1,9 @@
-from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo, PythonColumnInfo, PythonTableInfo
+from my_app.models import *
 from my_app.enums import Dialect
 from my_app.dbMappingTypes import *
 from typing import Optional, Any
 from io import StringIO
+from datetime import datetime, time
 
 class Transforms:
     """
@@ -98,7 +99,7 @@ class Transforms:
         return finalTables
 
     @staticmethod
-    def strToType(col: str, type: type)-> Any:
+    def strToType(col: str, type: type, dialect: Dialect)-> Any:
         if col == "":
             return None
         if type == str:
@@ -107,6 +108,14 @@ class Transforms:
             return int(col)
         if type == float:
             return float(col)
+        if type == datetime:
+            if dialect == Dialect.MYSQL:
+                return col.replace("T", " ").replace("Z", "")
+            return col 
+        if type == time:
+            if dialect == Dialect.MYSQL:
+                return col.replace("Z", "")
+            return col
         if type == bool:
             if col.lower() == "n":
                 return False
@@ -115,3 +124,16 @@ class Transforms:
             return col.encode('utf-8')
 
         return col
+    
+    @staticmethod
+    def addPrecision(precision: int, sqlType: str):
+        if sqlType == "VARCHAR":
+            if precision > 1024:
+                return "TEXT"
+            else:
+                return f"VARCHAR({precision})"
+        if sqlType == "DATETIME":
+            return "DATETIME(6)"
+        if sqlType == "TIME":
+            return "TIME(6)"
+        return sqlType
