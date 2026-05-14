@@ -1,5 +1,5 @@
 from my_app.db import Database
-import mysql.connector as mysql
+import pyodbc
 from my_app.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
 from my_app.models import TableInfo, SectionItem, SyncItem
 from my_app.enums import State, CsvOperation, Dialect
@@ -8,13 +8,18 @@ from my_app.transforms import Transforms
 from io import StringIO
 
 
-class MySqlDatabase(Database[ServerDbConfig]):
+class MssqlDatabase(Database[ServerDbConfig]):
 
     def __init__(self,config:ServerDbConfig)->None:
-        self.conn = mysql.connect(host=config.dbHost, port=config.dbPort, database=config.dbName,
-                                  user=config.dbUser, password=config.dbPassword)
-        self.dialect = Dialect.MYSQL
-        self.cursor = self.conn.cursor(dictionary=False)
+        driver = "DRIVER={ODBC Driver 17 for SQL Server};"
+        server = f"SERVER={config.dbHost},{config.dbPort};"
+        database = f"DATABASE={config.dbName};"
+        authentication = f"UID={config.dbUser};PWD={config.dbPassword};"
+        settings = "TrustServerCertificate=yes;"
+        connectionString = driver + server + database + authentication + settings
+        self.conn = pyodbc.connect(connectionString)
+        self.dialect = Dialect.MSSQL
+        self.cursor = self.conn.cursor()
 
 
     def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
@@ -81,8 +86,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
         for hold in holdingRows:
             try:
                 self.cursor.execute("""
-                    INSERT INTO `holding` (`id`, `name`, `parent_id`, `external_id`, `customers_id`,
-                                    `internal_name`)
+                    INSERT INTO `holding` (`id`, `name`, `parent_id`, `external_id`, `customers_id`, `internal_name`)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                     `name` = VALUES(`name`),
@@ -90,8 +94,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
                     `external_id` = VALUES(`external_id`),
                     `customers_id` = VALUES(`customers_id`),
                     `internal_name` = VALUES(`internal_name`)
-                                    """, (hold.id, hold.name, hold.parentId, hold.externalId,
-                                          hold.customersId, hold.internalName))
+                                    """, (hold.id, hold.name, hold.parentId, hold.externalId, hold.customersId, hold.internalName))
                 holdingsUpserted += 1
             except Exception as e:
                 raise Exception(f"Failed to upsert holding {hold.id}: {e}")
@@ -100,8 +103,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
         for farm in farmRows:
             try:
                 self.cursor.execute("""
-                    INSERT INTO `farm` (`id`, `name`, `holding_id`, `farm_type`, `time_zone`,
-                                    `external_id`, `customers_id`, `internal_name`)
+                    INSERT INTO `farm` (`id`, `name`, `holding_id`, `farm_type`, `time_zone`, `external_id`, `customers_id`, `internal_name`)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                     `name` = VALUES(`name`),
@@ -111,9 +113,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
                     `external_id` = VALUES(`external_id`),
                     `customers_id` = VALUES(`customers_id`),
                     `internal_name` = VALUES(`internal_name`)
-                                    """, (farm.id, farm.name, farm.holdingId, farm.farmType, 
-                                          farm.timeZone, farm.externalId, farm.customersId,
-                                          farm.internalName))
+                                    """, (farm.id, farm.name, farm.holdingId, farm.farmType, farm.timeZone, farm.externalId, farm.customersId, farm.internalName))
                 farmsUpserted+=1
             except Exception as e:
                 raise Exception(f"Failed to upsert farm {farm.id}: {e}")
@@ -148,6 +148,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
             
             if item["type"] == State.SECTION_NAME:
                 item = cast(SectionItem, item) 
+                # if the batch is not empty (previous table data was not all added), add it first
                 if len(batch) > 0:
                     if tableName is not None and operation is not None and sections is not None:
                         self._applyDataChange(tableName, operation, sections, batch)
@@ -178,8 +179,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
                 raise Exception("could not apply change as some values are None")
         self.conn.commit()
    
-    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: list[str],
-                         batch: list[list]):
+    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: list[str], batch: list[list]):
         if operation == CsvOperation.UPSERT:
             self._upsert(tableName, sections, batch)
             self.channel.results["rowsUpserted"] += len(batch)
@@ -242,7 +242,13 @@ class MySqlDatabase(Database[ServerDbConfig]):
         self.conn.commit()
 
     def _getExistingCols(self,tableName:str) -> list[str]:
-        self.cursor.execute(f"DESCRIBE {tableName}")
+        colQuery = """
+                    SELECT COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = 'dbo'
+                    AND TABLE_NAME = ?
+                    """
+        self.cursor.execute(colQuery, (tableName, ))
         try:
             columns = [row[0] for row in self.cursor.fetchall()] # type: ignore
         except Exception as e:
@@ -256,7 +262,7 @@ class MySqlDatabase(Database[ServerDbConfig]):
                 sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
                 try:
                     finalType = self._addPrecision(col.precision, sqlType) 
-                    self.cursor.execute(f"alter table {self._quoteIdent(table.name)} add column {self._quoteIdent(col.name)} {finalType}")
+                    self.cursor.execute(f"alter table {self._quoteIdent(table.name)} add {self._quoteIdent(col.name)} {finalType}")
                     self.conn.commit()
                     print(f'Added col {col.name} to {table.name}')
                     added += 1
@@ -265,11 +271,20 @@ class MySqlDatabase(Database[ServerDbConfig]):
         return added
 
     def _tableExists(self,tableName: str) -> bool:
-        self.cursor.execute(f"SHOW TABLES LIKE %s", (tableName,))
+        existQuery = """
+                    SELECT 1
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_SCHEMA = 'dbo'
+                    AND TABLE_NAME = ?
+                    """
+        self.cursor.execute(existQuery, (tableName,))
         return self.cursor.fetchone() is not None
 
     def _generateTable(self,table: TableInfo) -> None:
-        parts = {jdbc.name: (Transforms.jdbcToDialect(jdbc.jdbcType, self.dialect), jdbc.precision) for jdbc in table.columns}
+        parts = {}
+        for jdbc in table.columns:
+            parts[jdbc.name] = (Transforms.jdbcToDialect(jdbc.jdbcType, self.dialect), jdbc.precision)
+
         partString = StringIO()
         for col, info in parts.items():
             type, precision = info
@@ -284,17 +299,18 @@ class MySqlDatabase(Database[ServerDbConfig]):
         self.conn.commit()
         
     def _quoteIdent(self, name: str) -> str:
-        escaped = name.replace('`', '``')
-        return f'`{escaped}`'
+        escaped = name.replace('[', '[[')
+        escaped = escaped.replace(']', ']]')
+        return f'[{escaped}]'
     
     def _addPrecision(self, precision: int, sqlType: str):
-        if sqlType == "VARCHAR":
+        if sqlType == "NVARCHAR":
             if precision > 1024:
-                return "TEXT"
+                return "NVARCHAR(MAX)"
             else:
-                return f"VARCHAR({precision})"
-        if sqlType == "DATETIME":
-            return "DATETIME(6)"
+                return f"NVARCHAR({precision})"
+        if sqlType == "DATETIME2":
+            return "DATETIME2(6)"
         if sqlType == "TIME":
             return "TIME(6)"
         return sqlType

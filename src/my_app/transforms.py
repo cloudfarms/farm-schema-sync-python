@@ -1,6 +1,7 @@
-from my_app.models import *
+from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo
+from my_app.models import PythonColumnInfo, PythonTableInfo 
 from my_app.enums import Dialect
-from my_app.dbMappingTypes import *
+from my_app.dbMappingTypes import MYSQL_TYPES, POSTGRES_TYPES, SQLITE_TYPES, PYTHON_TYPES
 from typing import Optional, Any
 from io import StringIO
 from datetime import datetime, time
@@ -13,9 +14,10 @@ class Transforms:
     def flatten_holdings(holdings: list[OrgHolding], parentId: Optional[int]) -> list[HoldingRow]:
         rows = []
         for holding in holdings:
-            row = HoldingRow.model_validate({"id": holding.id, "name": holding.name, "parentId": parentId,
-                                       "externalId": holding.externalId, "customersId": holding.customersId,
-                                       "internalName": holding.internalName})
+            row = HoldingRow.model_validate({"id": holding.id, "name": holding.name,
+                                             "parentId": parentId, "externalId": holding.externalId,
+                                             "customersId": holding.customersId,
+                                            "internalName": holding.internalName})
             rows.append(row)
             if holding.subholdings is not None:
                 rows.extend(Transforms.flatten_holdings(holding.subholdings, holding.id))
@@ -27,16 +29,20 @@ class Transforms:
         for holding in holdings:
             if holding.farms is not None:
                 for farm in holding.farms:
-                    row = FarmRow.model_validate({"id": farm.id, "name": farm.name, "holdingId": holding.id,
-                                                  "farmType": farm.farmType, "timeZone": farm.timeZone, "externalId": farm.externalId,
-                                                  "customersId": farm.customersId, "internalName": farm.internalName})
+                    row = FarmRow.model_validate({"id": farm.id, "name": farm.name,
+                                                  "holdingId": holding.id,"farmType": farm.farmType, 
+                                                  "timeZone": farm.timeZone,
+                                                  "externalId": farm.externalId,
+                                                  "customersId": farm.customersId,
+                                                  "internalName": farm.internalName})
                     rows.append(row)
             if holding.subholdings is not None:
                 rows.extend(Transforms.collectFarms(holding.subholdings))
         return rows
 
     @staticmethod
-    def parseCsvLine(line: str, isContinue: bool, oldParams: Optional[list[str]])-> tuple[list[str], bool]:
+    def parseCsvLine(line: str, isContinue: bool,
+                     oldParams: Optional[list[str]]) -> tuple[list[str], bool]:
         """
             Due to some csv records being spread among more lines, we need to handle them properly 
         """
@@ -81,6 +87,8 @@ class Transforms:
             return POSTGRES_TYPES.get(jdbc, "TEXT")
         if dialect == Dialect.MYSQL:
             return MYSQL_TYPES.get(jdbc, "TEXT")
+        if dialect == Dialect.MSSQL:
+            return MYSQL_TYPES.get(jdbc, "NVARCHAR(MAX)")
         raise Exception("Unknown dialect")
     
     @staticmethod
@@ -124,16 +132,3 @@ class Transforms:
             return col.encode('utf-8')
 
         return col
-    
-    @staticmethod
-    def addPrecision(precision: int, sqlType: str):
-        if sqlType == "VARCHAR":
-            if precision > 1024:
-                return "TEXT"
-            else:
-                return f"VARCHAR({precision})"
-        if sqlType == "DATETIME":
-            return "DATETIME(6)"
-        if sqlType == "TIME":
-            return "TIME(6)"
-        return sqlType

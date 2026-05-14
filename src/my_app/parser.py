@@ -1,4 +1,4 @@
-from my_app.models import *
+from my_app.models import SyncItem, SectionItem, PythonTableInfo
 from typing import Optional, Union, cast
 from my_app.enums import State, CsvOperation
 from my_app.transforms import Transforms

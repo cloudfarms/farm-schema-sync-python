@@ -18,8 +18,10 @@ async def run():
     startTime = time.time()
     # argument parsing and verification
     parser = argparse.ArgumentParser() 
-    parser.add_argument("-db", "--dbName", help="Name of database file to use", nargs="?", default="farmSync.db")
-    parser.add_argument("-d", "--dialect", help="Database dialect to use", choices=["sqlite", "mysql", "postgres", "mssql"], default="sqlite")
+    parser.add_argument("-db", "--dbName", help="Name of database file to use",
+                        nargs="?", default="farmSync.db")
+    parser.add_argument("-d", "--dialect", help="Database dialect to use", 
+                        choices=["sqlite", "mysql", "postgres", "mssql"], default="sqlite")
 
     args = parser.parse_args()
     try:
@@ -54,6 +56,7 @@ async def run():
     print(f"---Columns added to existing tables: {results['colsAdded']}")
     print(f"---Total tables: {results['tablesCreated'] + results['tablesExisting']}")
 
+    raise Exception("testing")
     holdings = client.getHoldings()
     # flattening hierarchy
     holdingRows = Transforms.flatten_holdings(holdings, None)

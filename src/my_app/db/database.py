@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Union, TypeVar, Generic, Optional
-from my_app.enums import *
-from my_app.models import *
+from my_app.enums import Dialect, CsvOperation
+from my_app.models import TableInfo, SchemaResults, HoldingRow, FarmRow, OrgSyncResult
+from my_app.models import ServerDbConfig, SqliteDbConfig
 from my_app.pipelineChannel import PipelineChannel
 
 TConfig = TypeVar("TConfig", bound=Union[ServerDbConfig, SqliteDbConfig])
 
-class BaseDatabase(ABC, Generic[TConfig]):
+class Database(ABC, Generic[TConfig]):
+    dialect: Dialect
 
     def __init__(self, config: TConfig) -> None:
         self.config = config
@@ -32,7 +34,8 @@ class BaseDatabase(ABC, Generic[TConfig]):
         pass
    
     @abstractmethod
-    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: list[str], batch: list[list]):
+    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: list[str],
+                          batch: list[list]):
         pass
     
     @abstractmethod
@@ -44,7 +47,8 @@ class BaseDatabase(ABC, Generic[TConfig]):
         pass
 
     @abstractmethod
-    def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str], nextSince: Optional[str]):
+    def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str],
+                              nextSince: Optional[str]):
         pass
 
     @abstractmethod

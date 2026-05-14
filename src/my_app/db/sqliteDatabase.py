@@ -1,12 +1,13 @@
-from my_app.db import BaseDatabase
+from my_app.db import Database
 import sqlite3
-from my_app.models import *
+from my_app.models import SqliteDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from my_app.models import TableInfo, SectionItem, SyncItem
 from my_app.enums import State, CsvOperation, Dialect
 from typing import Optional, cast
 from my_app.transforms import Transforms
 
 
-class SqliteDatabase(BaseDatabase[SqliteDbConfig]):
+class SqliteDatabase(Database[SqliteDbConfig]):
 
     def __init__(self,config:SqliteDbConfig)->None:
         self.conn = sqlite3.connect(config.dbName)

@@ -2,11 +2,11 @@ import asyncio
 from typing import Optional
 from my_app.pipelineChannel import PipelineChannel
 from my_app.client import Client
-from my_app.db import BaseDatabase
+from my_app.db import Database
 from my_app.models import PythonTableInfo
 
 class AsyncController:
-    def __init__(self, apiClient: Client, dbClient: BaseDatabase, tableMap: dict[str, PythonTableInfo]):
+    def __init__(self, apiClient: Client, dbClient: Database, tableMap: dict[str, PythonTableInfo]):
         self.channel = PipelineChannel(dbClient.dialect)
         apiClient.setChannel(self.channel)
         dbClient.setChannel(self.channel)

@@ -1,5 +1,6 @@
-from my_app.db import BaseDatabase
-from my_app.models import *
+from my_app.db import Database
+from my_app.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from my_app.models import TableInfo, SectionItem, SyncItem
 from my_app.enums import State, CsvOperation, Dialect
 from typing import Optional, cast
 from my_app.transforms import Transforms
@@ -7,7 +8,7 @@ import psycopg2
 from psycopg2.extras import execute_values, execute_batch
 from io import StringIO
 
-class PostgresDatabase(BaseDatabase[ServerDbConfig]):
+class PostgresDatabase(Database[ServerDbConfig]):
 
     def __init__(self,config:ServerDbConfig)->None:
         self.conn = psycopg2.connect(host=config.dbHost, port=config.dbPort, dbname=config.dbName, user=config.dbUser, password=config.dbPassword)

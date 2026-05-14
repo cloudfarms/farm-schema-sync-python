@@ -87,6 +87,39 @@ MYSQL_TYPES = {
     2004: "BLOB"
 }
 
+MSSQL_TYPES = {
+    12: "NVARCHAR",
+    1: "NVARCHAR", 
+    -1: "NVARCHAR",
+    -9: "NVARCHAR",
+    -15: "NVARCHAR",
+    -16: "NVARCHAR",
+
+    -5: "BIGINT",
+    -6: "TINYINT",
+    5: "SMALLINT",
+
+    4: "INT",
+    2: "DECIMAL",
+    3: "DECIMAL",
+
+    7: "REAL",
+    8: "FLOAT",
+    6: "FLOAT",
+
+    -7: "BIT",
+    16: "BIT",
+
+    93: "DATETIME2",
+    92: "TIME",
+    91: "DATE",
+
+    -4: "VARBINARY",
+    -3: "VARBINARY",
+    -2: "VARBINARY",
+    2004: "VARBINARY"
+}
+
 PYTHON_TYPES = {
     12: str,
     1: str,
