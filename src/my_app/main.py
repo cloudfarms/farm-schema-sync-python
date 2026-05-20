@@ -16,7 +16,6 @@ def main():
 
 async def run():
     startTime = time.time()
-    # argument parsing and verification
     parser = argparse.ArgumentParser() 
     parser.add_argument("-db", "--dbName", help="Name of database file to use",
                         nargs="?", default="farmSync.db")
@@ -45,7 +44,7 @@ async def run():
     client = Client(config)
     client.authenticate()
     tables = client.getAllTables()
-    # create table map
+    # table map allows for quicker parsing later
     tableMap = Transforms.getTableMap(tables)
     dbClient = DbFactory().createDb(dbConfig, dialect)
     results = dbClient.execSchema(tables)
@@ -56,9 +55,7 @@ async def run():
     print(f"---Columns added to existing tables: {results['colsAdded']}")
     print(f"---Total tables: {results['tablesCreated'] + results['tablesExisting']}")
 
-    raise Exception("testing")
     holdings = client.getHoldings()
-    # flattening hierarchy
     holdingRows = Transforms.flatten_holdings(holdings, None)
     farmRows = Transforms.collectFarms(holdings)
 
@@ -102,7 +99,6 @@ async def run():
             nextSince = controller.channel.updateRow[nextSinceIndex]
         except:
             nextSince = None
-        # update metadata for next time the app is run
         dbClient.updateHoldingMetadata(holdingId, lastSince, nextSince)
 
     for farmId, since in farmIds:
@@ -128,7 +124,6 @@ async def run():
             nextSince = controller.channel.updateRow[nextSinceIndex]
         except:
             nextSince = None
-        # update metadata for next time the app is run
         dbClient.updateFarmMetadata(farmId, lastSince, nextSince)
 
     print("\nDATA SYNC COMPLETE:")

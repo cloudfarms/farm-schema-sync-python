@@ -27,7 +27,7 @@ class Parser:
                 raise Exception("Translation is not set for this table")
             for i, col in enumerate(line["data"]):
                 cols.append(Transforms.strToType(col, self.translation.columns[i].typeName, self.channel.dialect))
-            line["data"] = cols
+            line["data"] = tuple(cols)
         return line
     
     def parseLine(self, line:Optional[str]) -> Optional[Union[SectionItem, SyncItem]]:
@@ -71,14 +71,14 @@ class Parser:
 
         if self.state == State.HEADER:
             self.state = State.ROWS
-            return SyncItem({"type" : State.HEADER, "data": list(csv.reader([line]))[0]})
+            return SyncItem({"type" : State.HEADER, "data": tuple(list(csv.reader([line]))[0])})
         
         if self.state == State.ROWS:
             # take into account partial lines, which can be in quotes
             parsed, isDone = Transforms.parseCsvLine(line, self.buffer is not None, self.buffer)
             if isDone:
                 self.buffer = None
-                return SyncItem({"type": State.ROWS, "data": parsed})
+                return SyncItem({"type": State.ROWS, "data": tuple(parsed)})
             else:
                 self.buffer = parsed
                 return None

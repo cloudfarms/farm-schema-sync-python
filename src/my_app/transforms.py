@@ -1,7 +1,8 @@
 from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo
 from my_app.models import PythonColumnInfo, PythonTableInfo 
 from my_app.enums import Dialect
-from my_app.dbMappingTypes import MYSQL_TYPES, POSTGRES_TYPES, SQLITE_TYPES, PYTHON_TYPES
+from my_app.dbMappingTypes import MYSQL_TYPES, POSTGRES_TYPES, SQLITE_TYPES
+from my_app.dbMappingTypes import PYTHON_TYPES, MSSQL_TYPES
 from typing import Optional, Any
 from io import StringIO
 from datetime import datetime, time
@@ -88,7 +89,7 @@ class Transforms:
         if dialect == Dialect.MYSQL:
             return MYSQL_TYPES.get(jdbc, "TEXT")
         if dialect == Dialect.MSSQL:
-            return MYSQL_TYPES.get(jdbc, "NVARCHAR(MAX)")
+            return MSSQL_TYPES.get(jdbc, "NVARCHAR(MAX)")
         raise Exception("Unknown dialect")
     
     @staticmethod

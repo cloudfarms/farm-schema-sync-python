@@ -7,19 +7,19 @@ name = "farm_schema"
 version = "0.1.0"
 description = ""
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 
-# Only list dependencies your app actually needs
 dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.3",
     "python-dotenv>=1.2.1",
     "psycopg2-binary>=2.9.12",
-    "mysql-connector-python>=9.4.0"
+    "mysql-connector-python>=9.4.0",
+    "mssql-python>=1.7.1"
 ]
 
 [project.scripts]
-my-app = "my_app.main:main"
+farmSync = "my_app.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
