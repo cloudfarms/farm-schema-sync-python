@@ -67,7 +67,7 @@ python -m pip install .
 
 Afterwards, run the app with the command:
 ```bash
-my-app
+farmSync
 ```
 
 > Global installation vs Virtual environment

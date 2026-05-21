@@ -1,7 +1,7 @@
 from asyncio import Queue
-from my_app.models import SyncItem, SectionItem, DataSyncResult
+from farmSync.models import SyncItem, SectionItem, DataSyncResult
 from typing import Union, Optional
-from my_app.enums import Dialect
+from farmSync.core.enums import Dialect
 
 
 class PipelineChannel:

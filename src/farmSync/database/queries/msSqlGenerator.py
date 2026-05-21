@@ -1,14 +1,14 @@
-from my_app.db import Database
 import mssql_python
-from my_app.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
-from my_app.models import TableInfo, SectionItem, SyncItem, RsColumnInfo
-from my_app.enums import State, CsvOperation, Dialect
-from typing import Optional, cast
-from my_app.transforms import Transforms
+from farmSync.database.queries import SqlGenerator
+from farmSync.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from farmSync.models import TableInfo, SectionItem, SyncItem, RsColumnInfo
+from farmSync.core.enums import State, CsvOperation, Dialect
+from typing import Optional, cast, Any
+from farmSync.core import Transforms
 from io import StringIO
 
 
-class MssqlDatabase(Database[ServerDbConfig]):
+class MsSqlGenerator(SqlGenerator):
 
     def __init__(self,config:ServerDbConfig)->None:
         server = f"Server={config.dbHost},{config.dbPort};"
@@ -220,7 +220,6 @@ class MssqlDatabase(Database[ServerDbConfig]):
             
             if item["type"] == State.SECTION_NAME:
                 item = cast(SectionItem, item) 
-                # if the batch is not empty (previous table data was not all added), add it first
                 if len(batch) > 0:
                     if tableName is not None and operation is not None and sections is not None:
                         self._applyDataChange(tableName, operation, sections, batch)
@@ -316,7 +315,8 @@ class MssqlDatabase(Database[ServerDbConfig]):
             self.cursor.execute(f"DROP TABLE {self._quoteIdent(stagingTable)}")
         except Exception as e:
             self.conn.rollback()
-            self.cursor.execute(f"IF OBJECT_ID('tempdb..{stagingTable}') IS NOT NULL DROP TABLE {self._quoteIdent(stagingTable)}")
+            self.cursor.execute(f"IF OBJECT_ID('tempdb..{stagingTable}') IS NOT NULL "
+                                f"DROP TABLE {self._quoteIdent(stagingTable)}")
             self.conn.commit()
             raise Exception(f"Issue in table {tableName}: {e}")
 
@@ -389,7 +389,8 @@ class MssqlDatabase(Database[ServerDbConfig]):
                     finalType = self._addPrecision(col, sqlType) 
                     if sqlType == "NVARCHAR":
                         finalType = f"{finalType} COLLATE SQL_Latin1_General_CP1_CS_AS"
-                    self.cursor.execute(f"alter table {self._quoteIdent(table.name)} add {self._quoteIdent(col.name)} {finalType}")
+                    self.cursor.execute(f"ALTER TABLE {self._quoteIdent(table.name)} "
+                                        f"ADD {self._quoteIdent(col.name)} {finalType}")
                     self.conn.commit()
                     print(f'Added col {col.name} to {table.name}')
                     self.typeCache[table.name][col.name] = finalType
@@ -430,7 +431,8 @@ class MssqlDatabase(Database[ServerDbConfig]):
         primaryString = ""
         if len(table.key) > 0:
             primaryString = f"PRIMARY KEY ({','.join(self._quoteIdent(k) for k in table.key)})"
-        self.cursor.execute(f"IF OBJECT_ID(N'{table.name}', N'U') IS NULL CREATE TABLE {self._quoteIdent(table.name)} ({partString.getvalue()}{primaryString})")
+        self.cursor.execute(f"IF OBJECT_ID(N'{table.name}', N'U') IS NULL CREATE TABLE "
+                            f"{self._quoteIdent(table.name)} ({partString.getvalue()}{primaryString})")
         self.conn.commit()
 
         self.pkCache[table.name] = pkCache
@@ -454,3 +456,52 @@ class MssqlDatabase(Database[ServerDbConfig]):
         if sqlType == "TIME":
             return "TIME(6)"
         return sqlType
+
+    def getTableExistQuery(self) -> str:
+        return f"""
+            SELECT 1
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = 'dbo'
+            AND TABLE_NAME = {self.placeholder}
+            """
+    
+    def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], int]:
+        return f"""
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = 'dbo'
+                AND TABLE_NAME = {self.placeholder}
+                """, (tableName,), 0
+
+    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
+        queries = []
+        for col in table.columns:
+            if col.name not in existing:
+                sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
+                finalType = self._addPrecision(col, sqlType)
+                if sqlType == "NVARCHAR":
+                    finalType = f"{finalType} COLLATE SQL_Latin1_General_CP1_CS_AS"
+                quotedTable = self._quoteIdent(table.name)
+                quotedCol = self._quoteIdent(col.name)
+                query = f"ALTER TABLE {quotedTable} ADD {quotedCol} {finalType}"
+                queries.append((query, col.name))
+        return queries
+    
+
+    def getNewTableQuery(self, table: TableInfo) -> tuple[str, dict[str, str]]:
+        typeCache = {}
+        partString = StringIO()
+        for col in table.columns:
+            sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
+            finalType = self._addPrecision(col, sqlType)
+
+            typeCache[col.name] = finalType
+            partString.write(f"{self._quoteIdent(col.name)} {finalType}")
+            if sqlType == "NVARCHAR":
+                partString.write(" COLLATE SQL_Latin1_General_CP1_CS_AS")
+            partString.write(", ")
+
+        pkString = self._getPrimaryKeyString(table.key)
+        query = (f"IF OBJECT_ID(N'{table.name}', N'U') IS NULL CREATE TABLE "
+                f"{self._quoteIdent(table.name)} ({partString.getvalue()}{pkString})")
+        return query, typeCache

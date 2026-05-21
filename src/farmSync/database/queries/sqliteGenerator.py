@@ -1,19 +1,20 @@
-from my_app.db import Database
-from my_app.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
-from my_app.models import TableInfo, SectionItem, SyncItem
-from my_app.enums import State, CsvOperation, Dialect
-from typing import Optional, cast
-from my_app.transforms import Transforms
-import psycopg2
-from psycopg2.extras import execute_values, execute_batch
 from io import StringIO
+import sqlite3
+from farmSync.database.queries import SqlGenerator
+from farmSync.models import SqliteDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from farmSync.models import TableInfo, SectionItem, SyncItem
+from farmSync.core.enums import State, CsvOperation, Dialect
+from typing import Optional, cast, Any
+from farmSync.core import Transforms
 
-class PostgresDatabase(Database[ServerDbConfig]):
 
-    def __init__(self,config:ServerDbConfig)->None:
-        self.conn = psycopg2.connect(host=config.dbHost, port=config.dbPort, dbname=config.dbName, user=config.dbUser, password=config.dbPassword)
-        self.dialect = Dialect.POSTGRES
+class SqliteGenerator(SqlGenerator):
+
+    def __init__(self,config:SqliteDbConfig)->None:
+        self.conn = sqlite3.connect(config.dbName)
+        self.dialect = Dialect.SQLITE
         self.cursor = self.conn.cursor()
+        self.placeholder = '?'
 
 
     def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
@@ -40,9 +41,9 @@ class PostgresDatabase(Database[ServerDbConfig]):
     def syncOrgData(self,holdingRows: list[HoldingRow], farmRows: list[FarmRow])-> OrgSyncResult:
         HOLDING_DDL = """
             CREATE TABLE IF NOT EXISTS "holding" (
-            "id" BIGINT PRIMARY KEY,
+            "id" INTEGER PRIMARY KEY,
             "name" TEXT,
-            "parent_id" BIGINT,
+            "parent_id" INTEGER,
             "external_id" TEXT,
             "customers_id" TEXT,
             "internal_name" TEXT,
@@ -54,9 +55,9 @@ class PostgresDatabase(Database[ServerDbConfig]):
         """
         FARM_DDL = """
             CREATE TABLE IF NOT EXISTS "farm" (
-            "id" BIGINT PRIMARY KEY,
+            "id" INTEGER PRIMARY KEY,
             "name" TEXT,
-            "holding_id" BIGINT,
+            "holding_id" INTEGER,
             "farm_type" TEXT,
             "time_zone" TEXT,
             "external_id" TEXT,
@@ -81,13 +82,13 @@ class PostgresDatabase(Database[ServerDbConfig]):
             try:
                 self.cursor.execute("""
                     INSERT INTO "holding" ("id", "name", "parent_id", "external_id", "customers_id", "internal_name")
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT ("id") DO UPDATE SET
-                    "name" = EXCLUDED."name",
-                    "parent_id" = EXCLUDED."parent_id",
-                    "external_id" = EXCLUDED."external_id",
-                    "customers_id" = EXCLUDED."customers_id",
-                    "internal_name" = EXCLUDED."internal_name"
+                    "name" = excluded.name,
+                    "parent_id" = excluded.parent_id,
+                    "external_id" = excluded.external_id,
+                    "customers_id" = excluded.customers_id,
+                    "internal_name" = excluded.internal_name
                                     """, (hold.id, hold.name, hold.parentId, hold.externalId, hold.customersId, hold.internalName))
                 holdingsUpserted += 1
             except Exception as e:
@@ -98,15 +99,15 @@ class PostgresDatabase(Database[ServerDbConfig]):
             try:
                 self.cursor.execute("""
                     INSERT INTO "farm" ("id", "name", "holding_id", "farm_type", "time_zone", "external_id", "customers_id", "internal_name")
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (id) DO UPDATE SET
-                    "name" = EXCLUDED."name",
-                    "holding_id" = EXCLUDED."holding_id",
-                    "farm_type" = EXCLUDED."farm_type",
-                    "time_zone" = EXCLUDED."time_zone",
-                    "external_id" = EXCLUDED."external_id",
-                    "customers_id" = EXCLUDED."customers_id",
-                    "internal_name" = EXCLUDED."internal_name"
+                    "name" = excluded."name",
+                    "holding_id" = excluded."holding_id",
+                    "farm_type" = excluded."farm_type",
+                    "time_zone" = excluded."time_zone",
+                    "external_id" = excluded."external_id",
+                    "customers_id" = excluded."customers_id",
+                    "internal_name" = excluded."internal_name"
                                     """, (farm.id, farm.name, farm.holdingId, farm.farmType, farm.timeZone, farm.externalId, farm.customersId, farm.internalName))
                 farmsUpserted+=1
             except Exception as e:
@@ -124,7 +125,7 @@ class PostgresDatabase(Database[ServerDbConfig]):
 
     def readFarmIds(self) -> list[tuple[int, Optional[str]]]:
         try:
-            self.cursor.execute('SELECT "id", "next_since" FROM "farm"')
+            self.cursor.execute('select "id", "next_since" from "farm"')
             rows = self.cursor.fetchall()
             return rows
         except Exception as e:
@@ -184,67 +185,32 @@ class PostgresDatabase(Database[ServerDbConfig]):
             raise Exception(f"Unknown operation type: {operation}")
         batch.clear()
     
-    def _getTablePrimaries(self, tableName: str) -> list[str]:
-        sql = """
-            SELECT kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-            AND tc.table_name = %s
-            AND tc.table_schema = 'public'
-            """
-        self.cursor.execute(sql, (tableName, ))
-        rows = self.cursor.fetchall()
-        return [row[0] for row in rows]
-    
     def _upsert(self, tableName: str, sections: list[str], values: list[list]):
         try:
-            primaries = set(self._getTablePrimaries(tableName))
-        except:
-            raise Exception(f"Failed to get primary keys for table {tableName}")
-
-        colSet = set(sections)
-        isOnlyPrimaries = False
-        if colSet == primaries:
-            isOnlyPrimaries = True
-
-        if isOnlyPrimaries:
-            conflictQuery = f"ON CONFLICT ({', '.join([self._quoteIdent(section) for section in primaries])}) DO NOTHING"
-        else:
-            conflictQuery = f"ON CONFLICT ({', '.join([self._quoteIdent(section) for section in primaries])}) DO UPDATE SET"
-            updateSet = StringIO()
-            for section in sections:
-                if section not in primaries:
-                    updateSet.write(f"{self._quoteIdent(section)} = EXCLUDED.{self._quoteIdent(section)}, ")        
-            conflictQuery = f"{conflictQuery} {updateSet.getvalue()[:-2]}"
-
-        try:
-            sql = f"insert into {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) values %s {conflictQuery}"
-            execute_values(self.cursor, sql, values)
+            sql = f"insert or replace into {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) values ({', '.join(['?'] * len(sections))})"
+            self.cursor.executemany(sql, values)
         except Exception as e:
             raise Exception(f"row does not match structure: {e}")
 
     def _delete(self, tableName: str, sections: list[str], values: list[list]):
-        whereClauses = [f"{self._quoteIdent(where)} = %s" for where in sections]
+        whereClauses = [f"{self._quoteIdent(where)} = ?" for where in sections]
         sql = f"DELETE FROM {self._quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"
         self.cursor.executemany(sql, values)
 
     def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str], nextSince: Optional[str]):
-        sql = f"UPDATE \"holding\" SET \"last_since\" = %s, \"next_since\" = %s WHERE \"id\" = %s"
+        sql = f"UPDATE \"holding\" SET \"last_since\" = ?, \"next_since\" = ? WHERE \"id\" = ?"
         self.cursor.execute(sql, (lastSince, nextSince, holdingId))
         self.conn.commit()
 
     def updateFarmMetadata(self, farmId: int, lastSince: Optional[str], nextSince: Optional[str]):
-        sql = f"UPDATE \"farm\" SET \"last_since\" = %s, \"next_since\" = %s WHERE \"id\" = %s"
+        sql = f"UPDATE \"farm\" SET \"last_since\" = ?, \"next_since\" = ? WHERE \"id\" = ?"
         self.cursor.execute(sql, (lastSince, nextSince, farmId))
         self.conn.commit()
 
     def _getExistingCols(self,tableName:str) -> list[str]:
-        self.cursor.execute(f"SELECT column_name, UPPER(data_type) FROM information_schema.columns WHERE table_name = '{tableName}';")
+        self.cursor.execute(f"PRAGMA table_info({tableName})")
         try:
-            columns = [row[0] for row in self.cursor.fetchall()]
+            columns = [row[1] for row in self.cursor.fetchall()]
         except Exception as e:
             raise Exception(f"Failed to read columns for {tableName}: {e}")
         return columns
@@ -264,11 +230,8 @@ class PostgresDatabase(Database[ServerDbConfig]):
         return added
 
     def _tableExists(self,tableName: str) -> bool:
-        self.cursor.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = %s", (tableName,))
-        results = self.cursor.fetchone() 
-        if results is None:
-            raise Exception(f"Failed to check if table exists: {tableName}")
-        return results[0] > 0
+        self.cursor.execute(f"SELECT 1 FROM sqlite_master WHERE type='table' AND name= ?", (tableName,))
+        return self.cursor.fetchone() is not None
 
     def _generateTable(self,table: TableInfo) -> None:
         parts = {jdbc.name: Transforms.jdbcToDialect(jdbc.jdbcType, self.dialect) for jdbc in table.columns}
@@ -278,4 +241,34 @@ class PostgresDatabase(Database[ServerDbConfig]):
             primaryString = f", PRIMARY KEY ({','.join(self._quoteIdent(k) for k in table.key)})"
         self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} ({partString}{primaryString})")
         self.conn.commit()
-        
+
+    def getTableExistQuery(self) -> str:
+        return f"SELECT 1 FROM sqlite_master WHERE type='table' AND name= {self.placeholder}"
+    
+    def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], int]:
+        return f"PRAGMA table_info({self._quoteIdent(tableName)})", (), 1
+    
+    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[tuple[str,str]]:
+        queries = []
+        for col in table.columns:
+            if col.name not in existing:
+                sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
+                quotedTable = self._quoteIdent(table.name)
+                quotedCol = self._quoteIdent(col.name)
+                query = f"ALTER TABLE {quotedTable} ADD COLUMN {quotedCol} {sqlType}"
+                queries.append((query, col.name))
+        return queries
+    
+    def getNewTableQuery(self, table: TableInfo) -> tuple[str, dict[str, str]]:
+        typeCache = {}
+        partString = StringIO()
+        for col in table.columns:
+            sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
+
+            typeCache[col.name] = sqlType
+            partString.write(f"{self._quoteIdent(col.name)} {sqlType}")
+            partString.write(", ")
+        primaryString = self._getPrimaryKeyString(table.key)
+        query = (f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} "
+                 f"({partString.getvalue()}{primaryString})")
+        return query, typeCache

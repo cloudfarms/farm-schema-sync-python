@@ -1,10 +1,9 @@
-from my_app.config import loadConfig, loadDbConfig
-from my_app.enums import Dialect
-from my_app.client import Client
-from my_app.db import DbFactory
-from my_app.transforms import Transforms
-from my_app.asyncController import AsyncController
-from my_app.models import ServerDbConfig, SqliteDbConfig
+from farmSync.config import loadConfig, loadDbConfig
+from farmSync.core.enums import Dialect
+from farmSync.client import Client
+from farmSync.database import DbManager
+from farmSync.core import Transforms, AsyncController
+from farmSync.models import ServerDbConfig, SqliteDbConfig
 import argparse
 import sys
 import re
@@ -15,6 +14,7 @@ def main():
     asyncio.run(run())
 
 async def run():
+    
     startTime = time.time()
     parser = argparse.ArgumentParser() 
     parser.add_argument("-db", "--dbName", help="Name of database file to use",
@@ -25,11 +25,12 @@ async def run():
     args = parser.parse_args()
     try:
         dbName = args.dbName
-        if re.fullmatch(r"\w+\.db", dbName) is None:
-            print("Invalid name for database. Database files must end with .db")
-            sys.exit(1)
     except Exception:
         dbName = "farmSync.db"
+
+    if re.fullmatch(r"\w+\.db", dbName) is None:
+        print("Invalid name for database. Database files must end with .db")
+        sys.exit(1)
 
     dialect = Dialect(args.dialect)
     print(f"SELECTED DIALECT: {dialect}")
@@ -46,7 +47,7 @@ async def run():
     tables = client.getAllTables()
     # table map allows for quicker parsing later
     tableMap = Transforms.getTableMap(tables)
-    dbClient = DbFactory().createDb(dbConfig, dialect)
+    dbClient = DbManager(dbConfig, dialect)
     results = dbClient.execSchema(tables)
 
     print("\nSCHEMA SYNC COMPLETE:")
@@ -55,6 +56,7 @@ async def run():
     print(f"---Columns added to existing tables: {results['colsAdded']}")
     print(f"---Total tables: {results['tablesCreated'] + results['tablesExisting']}")
 
+    raise Exception("test")
     holdings = client.getHoldings()
     holdingRows = Transforms.flatten_holdings(holdings, None)
     farmRows = Transforms.collectFarms(holdings)
@@ -76,7 +78,7 @@ async def run():
     totalDeleted = 0
     holdingsProcessed = 0
     farmsProcessed = 0
-
+    lastTimestamp = time.time()
     for holdingId, since in holdingIds:
         print(f"Holding {holdingId} (since: {since})...", end="")
         path = f"/cfapi/holding/{holdingId}/data-changes"
@@ -87,18 +89,21 @@ async def run():
         totalUpserted += results['rowsUpserted']
         totalDeleted += results['rowsDeleted']
         holdingsProcessed += 1
-        print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted")
+        print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted.",
+              f"Took {time.time() - lastTimestamp:.2f}s")
+        lastTimestamp = time.time()
         try:
             lastSinceIndex = controller.channel.updateHeader.index("requestedSince")
             lastSince = controller.channel.updateRow[lastSinceIndex]
-        except:
+        except (ValueError, IndexError):
             lastSince = None
 
         try:
             nextSinceIndex = controller.channel.updateHeader.index("nextSince")
             nextSince = controller.channel.updateRow[nextSinceIndex]
-        except:
+        except (ValueError, IndexError):
             nextSince = None
+
         dbClient.updateHoldingMetadata(holdingId, lastSince, nextSince)
 
     for farmId, since in farmIds:
@@ -112,17 +117,19 @@ async def run():
         totalDeleted += results['rowsDeleted']
         farmsProcessed += 1
 
-        print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted")
+        print(f"{results['rowsUpserted']} upserted, {results['rowsDeleted']} deleted.",
+              f"Took {time.time() - lastTimestamp:.2f}s")
+        lastTimestamp = time.time()
         try:
             lastSinceIndex = controller.channel.updateHeader.index("requestedSince")
             lastSince = controller.channel.updateRow[lastSinceIndex]
-        except:
+        except (ValueError, IndexError):
             lastSince = None
 
         try:
             nextSinceIndex = controller.channel.updateHeader.index("nextSince")
             nextSince = controller.channel.updateRow[nextSinceIndex]
-        except:
+        except (ValueError, IndexError):
             nextSince = None
         dbClient.updateFarmMetadata(farmId, lastSince, nextSince)
 
@@ -131,7 +138,7 @@ async def run():
     print(f"---Farms processed: {farmsProcessed}")
     print(f"---Total rows upserted: {totalUpserted}")
     print(f"---Total rows deleted: {totalDeleted}")
-    print(f"---Took {time.time() - startTime} seconds")
+    print(f"---Took {time.time() - startTime:.2f} seconds")
 
 if __name__ == "__main__":
     main()

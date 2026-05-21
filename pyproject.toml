@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-farmSync = "my_app.main:main"
+farmSync = "farmSync.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

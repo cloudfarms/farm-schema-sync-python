@@ -1,20 +1,21 @@
-from my_app.db import Database
+from farmSync.database.queries import SqlGenerator
 import mysql.connector as mysql
-from my_app.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
-from my_app.models import TableInfo, SectionItem, SyncItem
-from my_app.enums import State, CsvOperation, Dialect
-from typing import Optional, cast
-from my_app.transforms import Transforms
+from farmSync.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from farmSync.models import TableInfo, SectionItem, SyncItem, RsColumnInfo
+from farmSync.core.enums import State, CsvOperation, Dialect
+from typing import Optional, cast, Any
+from farmSync.core import Transforms
 from io import StringIO
 
 
-class MySqlDatabase(Database[ServerDbConfig]):
+class MySqlGenerator(SqlGenerator):
 
     def __init__(self,config:ServerDbConfig)->None:
         self.conn = mysql.connect(host=config.dbHost, port=config.dbPort, database=config.dbName,
                                   user=config.dbUser, password=config.dbPassword)
         self.dialect = Dialect.MYSQL
         self.cursor = self.conn.cursor(dictionary=False)
+        self.placeholder = "%s"
 
 
     def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
@@ -287,14 +288,48 @@ class MySqlDatabase(Database[ServerDbConfig]):
         escaped = name.replace('`', '``')
         return f'`{escaped}`'
     
-    def _addPrecision(self, precision: int, sqlType: str):
+    def _addPrecision(self, col: RsColumnInfo, sqlType: str):
         if sqlType == "VARCHAR":
-            if precision > 1024:
+            if col.precision > 1024:
                 return "TEXT"
             else:
-                return f"VARCHAR({precision})"
+                return f"VARCHAR({col.precision})"
         if sqlType == "DATETIME":
             return "DATETIME(6)"
         if sqlType == "TIME":
             return "TIME(6)"
         return sqlType
+
+    def getTableExistQuery(self) -> str:
+        return f"SHOW TABLES LIKE {self.placeholder}"
+
+    def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], int]:
+        return f"DESCRIBE {self._quoteIdent(tableName)}",(), 0
+
+    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
+        queries = []
+        for col in table.columns:
+            if col.name not in existing:
+                sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
+                finalType = self._addPrecision(col, sqlType)
+                quotedTable = self._quoteIdent(table.name)
+                quotedCol = self._quoteIdent(col.name)
+                query = f"ALTER TABLE {quotedTable} ADD COLUMN {quotedCol} {finalType}"
+                queries.append((query, col.name))
+        return queries
+
+    def getNewTableQuery(self, table: TableInfo) -> tuple[str, dict[str, str]]:
+        typeCache = {}
+        partString = StringIO()
+        for col in table.columns:
+            sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
+            finalType = self._addPrecision(col, sqlType)
+
+            typeCache[col.name] = finalType
+            partString.write(f"{self._quoteIdent(col.name)} {finalType}")
+            partString.write(", ")
+        primaryString = self._getPrimaryKeyString(table.key)
+        query = (f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} "
+                 f"({partString.getvalue()}{primaryString})")
+        return query, typeCache
+

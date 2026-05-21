@@ -1,10 +1,9 @@
 import httpx
-from my_app.config import Config
-from my_app.models import AuthRequest, AuthResponse, TableInfo, OrgHolding,PythonTableInfo
-from my_app.enums import State
+from farmSync.config import Config
+from farmSync.models import AuthRequest, AuthResponse, TableInfo, OrgHolding,PythonTableInfo
+from farmSync.core.enums import State
 from typing import Optional
-from my_app.pipelineChannel import PipelineChannel 
-from my_app.parser import Parser
+from farmSync.core import PipelineChannel, CsvParser
 
 class Client:
     """
@@ -14,6 +13,7 @@ class Client:
         self.config = config
         self.client = httpx.Client(base_url=config.baseUrl)
         self.state = State.START
+        self.channel = None
 
     def authenticate(self):
         print("Authenticating...")
@@ -54,10 +54,17 @@ class Client:
     async def holdingChangesProducer(self, path:str, since:Optional[str], tableMap: dict[str, PythonTableInfo]):
         if since is not None:
             path = f"{path}?since={since}"
-        parser = Parser(self.channel)
+        if self.channel is None:
+            raise Exception("Channel not set")
+        parser = CsvParser(self.channel)
+
+        headers = {
+            "Accept": "text/csv",
+            "Authorization": self.client.headers["Authorization"]
+        }
         try:
             async with httpx.AsyncClient(base_url=self.config.baseUrl, timeout=60.0) as client:
-                async with client.stream("GET", path, headers={"Accept": "text/csv", "Authorization": self.client.headers["Authorization"]}) as r:
+                async with client.stream("GET", path, headers=headers) as r:
                     if r.status_code == 401:
                         raise Exception(f"Missing or invalid auth token: {path}")
                     if r.status_code == 403:

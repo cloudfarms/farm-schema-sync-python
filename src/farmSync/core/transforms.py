@@ -1,8 +1,8 @@
-from my_app.models import OrgHolding, HoldingRow, FarmRow, TableInfo
-from my_app.models import PythonColumnInfo, PythonTableInfo 
-from my_app.enums import Dialect
-from my_app.dbMappingTypes import MYSQL_TYPES, POSTGRES_TYPES, SQLITE_TYPES
-from my_app.dbMappingTypes import PYTHON_TYPES, MSSQL_TYPES
+from farmSync.models import OrgHolding, HoldingRow, FarmRow, TableInfo
+from farmSync.models import PythonColumnInfo, PythonTableInfo 
+from farmSync.core.enums import Dialect
+from farmSync.core.dbMappingTypes import MYSQL_TYPES, POSTGRES_TYPES, SQLITE_TYPES
+from farmSync.core.dbMappingTypes import PYTHON_TYPES, MSSQL_TYPES
 from typing import Optional, Any
 from io import StringIO
 from datetime import datetime, time
@@ -45,7 +45,7 @@ class Transforms:
     def parseCsvLine(line: str, isContinue: bool,
                      oldParams: Optional[list[str]]) -> tuple[list[str], bool]:
         """
-            Due to some csv records being spread among more lines, we need to handle them properly 
+            Parses lines from csv correctly including multiple line strings
         """
         parameters = []
         buffer = StringIO()
