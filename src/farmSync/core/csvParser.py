@@ -1,7 +1,8 @@
 from farmSync.models import SyncItem, SectionItem, PythonTableInfo
 from typing import Optional, Union, cast
 from farmSync.core.enums import State, CsvOperation
-from farmSync.core import Transforms, PipelineChannel
+from farmSync.core.transforms import Transforms
+from farmSync.core.pipelineChannel import PipelineChannel
 import csv
 
 

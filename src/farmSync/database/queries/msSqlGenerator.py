@@ -1,212 +1,17 @@
-import mssql_python
 from farmSync.database.queries import SqlGenerator
-from farmSync.models import ServerDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from farmSync.models import SchemaResults, FarmRow, HoldingRow, OrgSyncResult
 from farmSync.models import TableInfo, SectionItem, SyncItem, RsColumnInfo
 from farmSync.core.enums import State, CsvOperation, Dialect
 from typing import Optional, cast, Any
-from farmSync.core import Transforms
+from farmSync.core.transforms import Transforms
 from io import StringIO
 
 
 class MsSqlGenerator(SqlGenerator):
 
-    def __init__(self,config:ServerDbConfig)->None:
-        server = f"Server={config.dbHost},{config.dbPort};"
-        database = f"Database={config.dbName};"
-        authentication = f"UID={config.dbUser};PWD={config.dbPassword};"
-        settings = "TrustServerCertificate=yes;"
-        connectionString = server + database + authentication + settings
-        self.conn = mssql_python.connect(connectionString)
+    def __init__(self)->None:
         self.dialect = Dialect.MSSQL
-        self.cursor = self.conn.cursor()
         self.placeholder = "?"
-        # caching for later
-        self.pkCache = {}
-        self.typeCache = {}
-
-
-    def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
-        results: SchemaResults = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
-        for table in tables:
-            exists = self._tableExists(table.name)
-            if exists:
-                existing = self._getExistingCols(table.name)
-                added = self._addMissingCols(table, existing)
-                if added > 0:
-                    print(f"Table {table.name} updated with {added} new cols")
-                else:
-                    print(f"Table {table.name} is already up to date")
-                results["colsAdded"] += added
-                results["tablesExisting"] += 1
-                continue
-            try:
-                self._generateTable(table)
-                results["tablesCreated"] += 1
-            except Exception as e:
-                self.conn.rollback()
-                raise Exception(f"Failed to create table {table.name}: {e}")
-        return results
-
-    def _mergeHoldingSql(self) -> str:
-        return f"""
-            MERGE [holding] WITH (HOLDLOCK) AS target
-                USING (
-                    SELECT
-                        {self.placeholder} AS [id],
-                        {self.placeholder} AS [name],
-                        {self.placeholder} AS [parent_id],
-                        {self.placeholder} AS [external_id],
-                        {self.placeholder} AS [customers_id],
-                        {self.placeholder} AS [internal_name]
-                ) AS source
-                ON target.[id] = source.[id]
-
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        target.[name] = source.[name],
-                        target.[parent_id] = source.[parent_id],
-                        target.[external_id] = source.[external_id],
-                        target.[customers_id] = source.[customers_id],
-                        target.[internal_name] = source.[internal_name]
-
-                WHEN NOT MATCHED THEN
-                    INSERT ([id], [name], [parent_id], [external_id], [customers_id], [internal_name])
-                    VALUES (
-                        source.[id],
-                        source.[name],
-                        source.[parent_id],
-                        source.[external_id],
-                        source.[customers_id],
-                        source.[internal_name]
-                    );
-            """
-    
-    def _mergeFarmSql(self) -> str:
-        return f"""
-            MERGE [farm] WITH (HOLDLOCK) AS target
-                USING (
-                    SELECT
-                        {self.placeholder} AS [id],
-                        {self.placeholder} AS [name],
-                        {self.placeholder} AS [holding_id],
-                        {self.placeholder} AS [farm_type],
-                        {self.placeholder} AS [time_zone],
-                        {self.placeholder} AS [external_id],
-                        {self.placeholder} AS [customers_id],
-                        {self.placeholder} AS [internal_name]
-                ) AS source
-                ON target.[id] = source.[id]
-
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        target.[name] = source.[name],
-                        target.[holding_id] = source.[holding_id],
-                        target.[farm_type] = source.[farm_type],
-                        target.[time_zone] = source.[time_zone],
-                        target.[external_id] = source.[external_id],
-                        target.[customers_id] = source.[customers_id],
-                        target.[internal_name] = source.[internal_name]
-
-                WHEN NOT MATCHED THEN
-                    INSERT (
-                    [id], [name], [holding_id], [farm_type], [time_zone],
-                    [external_id], [customers_id], [internal_name]
-                    )
-                    VALUES (
-                        source.[id],
-                        source.[name],
-                        source.[holding_id],
-                        source.[farm_type],
-                        source.[time_zone],
-                        source.[external_id],
-                        source.[customers_id],
-                        source.[internal_name]
-                    );
-                """
-
-    def syncOrgData(self,holdingRows: list[HoldingRow], farmRows: list[FarmRow])-> OrgSyncResult:
-        HOLDING_DDL = """
-            IF OBJECT_ID(N'holding', N'U') IS NULL CREATE TABLE [holding] (
-            [id] BIGINT NOT NULL PRIMARY KEY,
-            [name] NVARCHAR(MAX),
-            [parent_id] BIGINT,
-            [external_id] NVARCHAR(MAX),
-            [customers_id] NVARCHAR(MAX),
-            [internal_name] NVARCHAR(MAX),
-            [active] BIT,
-            [last_sync] NVARCHAR(MAX),
-            [last_since] NVARCHAR(MAX),
-            [next_since] NVARCHAR(MAX)
-        )
-        """
-        FARM_DDL = """
-            IF OBJECT_ID(N'farm', N'U') IS NULL CREATE TABLE [farm] (
-            [id] BIGINT NOT NULL PRIMARY KEY,
-            [name] NVARCHAR(MAX),
-            [holding_id] BIGINT,
-            [farm_type] NVARCHAR(MAX),
-            [time_zone] NVARCHAR(MAX),
-            [external_id] NVARCHAR(MAX),
-            [customers_id] NVARCHAR(MAX),
-            [internal_name] NVARCHAR(MAX),
-            [last_sync] NVARCHAR(MAX),
-            [last_since] NVARCHAR(MAX),
-            [next_since] NVARCHAR(MAX)
-        )
-        """
-        try:
-            self.cursor.execute(HOLDING_DDL)
-        except Exception as e:
-            self.conn.rollback()
-            raise Exception(f"Failed to create table holding: {e}")
-        try:
-            self.cursor.execute(FARM_DDL)
-        except Exception as e:
-            self.conn.rollback()
-            raise Exception(f"Failed to create table holding: {e}")
-        
-        holdingsUpserted = 0
-        for hold in holdingRows:
-            try:
-                self.cursor.execute(self._mergeHoldingSql(), (hold.id, hold.name, hold.parentId,
-                                                              hold.externalId, hold.customersId,
-                                                              hold.internalName))
-                holdingsUpserted += 1
-            except Exception as e:
-                self.conn.rollback()
-                raise Exception(f"Failed to upsert holding {hold.id}: {e}")
-        
-        farmsUpserted = 0
-        for farm in farmRows:
-            try:
-                self.cursor.execute(self._mergeFarmSql(), (farm.id, farm.name, farm.holdingId,
-                                                           farm.farmType, farm.timeZone,
-                                                           farm.externalId, farm.customersId,
-                                                           farm.internalName))
-                farmsUpserted+=1
-            except Exception as e:
-                self.conn.rollback()
-                raise Exception(f"Failed to upsert farm {farm.id}: {e}")
-        self.conn.commit()
-        return {"holdingsUpserted": holdingsUpserted, "farmsUpserted": farmsUpserted}
-
-    def readHoldingIds(self)-> list[tuple[int, Optional[str]]]:
-        try:
-            self.cursor.execute('SELECT [id], [next_since] FROM [holding] WHERE [parent_id] IS NULL')
-            rows = self.cursor.fetchall()
-            return rows # type: ignore
-        except Exception as e:
-            self.conn.rollback()
-            raise Exception(f"Failed to collect holding IDs: {e}")
-
-    def readFarmIds(self) -> list[tuple[int, Optional[str]]]:
-        try:
-            self.cursor.execute('SELECT [id], [next_since] FROM [farm]')
-            rows = self.cursor.fetchall()
-            return rows # type: ignore
-        except Exception as e:
-            self.conn.rollback()
-            raise Exception(f"Failed to collect farm IDs: {e}")
 
     async def applyDataChangesConsumer(self):
         batch = []
@@ -445,10 +250,10 @@ class MsSqlGenerator(SqlGenerator):
     
     def _addPrecision(self, colInfo: RsColumnInfo, sqlType: str):
         if sqlType == "NVARCHAR":
-            if colInfo.precision > 254:
-                return "NVARCHAR(MAX)"
+            if colInfo.precision > 1024:
+                return "NVARCHAR(MAX) COLLATE SQL_Latin1_General_CP1_CS_AS"
             else:
-                return f"NVARCHAR({colInfo.precision})"
+                return f"NVARCHAR({colInfo.precision}) COLLATE SQL_Latin1_General_CP1_CS_AS"
         if sqlType == "DECIMAL":
             return f"DECIMAL({colInfo.precision},{colInfo.scale})"
         if sqlType == "DATETIME2":
@@ -458,20 +263,13 @@ class MsSqlGenerator(SqlGenerator):
         return sqlType
 
     def getTableExistQuery(self) -> str:
-        return f"""
-            SELECT 1
-            FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = 'dbo'
-            AND TABLE_NAME = {self.placeholder}
-            """
+        return ("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'dbo'"
+            f" AND TABLE_NAME = {self.placeholder}")
     
     def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], int]:
-        return f"""
-                SELECT COLUMN_NAME
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = 'dbo'
-                AND TABLE_NAME = {self.placeholder}
-                """, (tableName,), 0
+        query = ("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo'"
+                f" AND TABLE_NAME = {self.placeholder}")
+        return query, (tableName,), 0
 
     def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
         queries = []
@@ -479,8 +277,6 @@ class MsSqlGenerator(SqlGenerator):
             if col.name not in existing:
                 sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
                 finalType = self._addPrecision(col, sqlType)
-                if sqlType == "NVARCHAR":
-                    finalType = f"{finalType} COLLATE SQL_Latin1_General_CP1_CS_AS"
                 quotedTable = self._quoteIdent(table.name)
                 quotedCol = self._quoteIdent(col.name)
                 query = f"ALTER TABLE {quotedTable} ADD {quotedCol} {finalType}"
@@ -497,11 +293,126 @@ class MsSqlGenerator(SqlGenerator):
 
             typeCache[col.name] = finalType
             partString.write(f"{self._quoteIdent(col.name)} {finalType}")
-            if sqlType == "NVARCHAR":
-                partString.write(" COLLATE SQL_Latin1_General_CP1_CS_AS")
             partString.write(", ")
 
         pkString = self._getPrimaryKeyString(table.key)
-        query = (f"IF OBJECT_ID(N'{table.name}', N'U') IS NULL CREATE TABLE "
+        query = (f"IF OBJECT_ID(N'{self._quoteIdent(table.name)}', N'U') IS NULL CREATE TABLE "
                 f"{self._quoteIdent(table.name)} ({partString.getvalue()}{pkString})")
         return query, typeCache
+    
+    def getHoldingDdl(self):
+        return """
+            IF OBJECT_ID(N'holding', N'U') IS NULL CREATE TABLE [holding] (
+            [id] BIGINT NOT NULL PRIMARY KEY,
+            [name] NVARCHAR(MAX),
+            [parent_id] BIGINT,
+            [external_id] NVARCHAR(MAX),
+            [customers_id] NVARCHAR(MAX),
+            [internal_name] NVARCHAR(MAX),
+            [active] BIT,
+            [last_sync] NVARCHAR(MAX),
+            [last_since] NVARCHAR(MAX),
+            [next_since] NVARCHAR(MAX)
+        )
+        """
+
+    def getFarmDdl(self):
+        return """
+            IF OBJECT_ID(N'farm', N'U') IS NULL CREATE TABLE [farm] (
+            [id] BIGINT NOT NULL PRIMARY KEY,
+            [name] NVARCHAR(MAX),
+            [holding_id] BIGINT,
+            [farm_type] NVARCHAR(MAX),
+            [time_zone] NVARCHAR(MAX),
+            [external_id] NVARCHAR(MAX),
+            [customers_id] NVARCHAR(MAX),
+            [internal_name] NVARCHAR(MAX),
+            [last_sync] NVARCHAR(MAX),
+            [last_since] NVARCHAR(MAX),
+            [next_since] NVARCHAR(MAX)
+        )
+        """
+
+
+    def getHoldingInsertQuery(self) -> str:
+        return f"""
+            MERGE [holding] WITH (HOLDLOCK) AS target
+                USING (
+                    SELECT
+                        {self.placeholder} AS [id],
+                        {self.placeholder} AS [name],
+                        {self.placeholder} AS [parent_id],
+                        {self.placeholder} AS [external_id],
+                        {self.placeholder} AS [customers_id],
+                        {self.placeholder} AS [internal_name]
+                ) AS source
+                ON target.[id] = source.[id]
+
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        target.[name] = source.[name],
+                        target.[parent_id] = source.[parent_id],
+                        target.[external_id] = source.[external_id],
+                        target.[customers_id] = source.[customers_id],
+                        target.[internal_name] = source.[internal_name]
+
+                WHEN NOT MATCHED THEN
+                    INSERT ([id], [name], [parent_id], [external_id], [customers_id], [internal_name])
+                    VALUES (
+                        source.[id],
+                        source.[name],
+                        source.[parent_id],
+                        source.[external_id],
+                        source.[customers_id],
+                        source.[internal_name]
+                    );
+            """
+
+    def getFarmInsertQuery(self) -> str:
+        return f"""
+            MERGE [farm] WITH (HOLDLOCK) AS target
+                USING (
+                    SELECT
+                        {self.placeholder} AS [id],
+                        {self.placeholder} AS [name],
+                        {self.placeholder} AS [holding_id],
+                        {self.placeholder} AS [farm_type],
+                        {self.placeholder} AS [time_zone],
+                        {self.placeholder} AS [external_id],
+                        {self.placeholder} AS [customers_id],
+                        {self.placeholder} AS [internal_name]
+                ) AS source
+                ON target.[id] = source.[id]
+
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        target.[name] = source.[name],
+                        target.[holding_id] = source.[holding_id],
+                        target.[farm_type] = source.[farm_type],
+                        target.[time_zone] = source.[time_zone],
+                        target.[external_id] = source.[external_id],
+                        target.[customers_id] = source.[customers_id],
+                        target.[internal_name] = source.[internal_name]
+
+                WHEN NOT MATCHED THEN
+                    INSERT (
+                    [id], [name], [holding_id], [farm_type], [time_zone],
+                    [external_id], [customers_id], [internal_name]
+                    )
+                    VALUES (
+                        source.[id],
+                        source.[name],
+                        source.[holding_id],
+                        source.[farm_type],
+                        source.[time_zone],
+                        source.[external_id],
+                        source.[customers_id],
+                        source.[internal_name]
+                    );
+                """
+
+    def getHoldingIdsQuery(self)-> str:
+        return 'SELECT [id], [next_since] FROM [holding] WHERE [parent_id] IS NULL'
+
+    def getFarmIdsQuery(self) -> str:
+        return 'SELECT [id], [next_since] FROM [farm]'

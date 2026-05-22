@@ -1,135 +1,17 @@
 from io import StringIO
-import sqlite3
 from farmSync.database.queries import SqlGenerator
-from farmSync.models import SqliteDbConfig, SchemaResults, FarmRow, HoldingRow, OrgSyncResult
+from farmSync.models import FarmRow, HoldingRow, OrgSyncResult
 from farmSync.models import TableInfo, SectionItem, SyncItem
 from farmSync.core.enums import State, CsvOperation, Dialect
 from typing import Optional, cast, Any
-from farmSync.core import Transforms
+from farmSync.core.transforms import Transforms
 
 
 class SqliteGenerator(SqlGenerator):
 
-    def __init__(self,config:SqliteDbConfig)->None:
-        self.conn = sqlite3.connect(config.dbName)
+    def __init__(self)->None:
         self.dialect = Dialect.SQLITE
-        self.cursor = self.conn.cursor()
         self.placeholder = '?'
-
-
-    def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
-        results: SchemaResults = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
-        for table in tables:
-            exists = self._tableExists(table.name)
-            if exists:
-                existing = self._getExistingCols(table.name)
-                added = self._addMissingCols(table, existing)
-                if added > 0:
-                    print(f"Table {table.name} updated with {added} new cols")
-                else:
-                    print(f"Table {table.name} is already up to date")
-                results["colsAdded"] += added
-                results["tablesExisting"] += 1
-                continue
-            try:
-                self._generateTable(table)
-                results["tablesCreated"] += 1
-            except Exception as e:
-                raise Exception(f"Failed to create table {table.name}: {e}")
-        return results
-    
-    def syncOrgData(self,holdingRows: list[HoldingRow], farmRows: list[FarmRow])-> OrgSyncResult:
-        HOLDING_DDL = """
-            CREATE TABLE IF NOT EXISTS "holding" (
-            "id" INTEGER PRIMARY KEY,
-            "name" TEXT,
-            "parent_id" INTEGER,
-            "external_id" TEXT,
-            "customers_id" TEXT,
-            "internal_name" TEXT,
-            "active" BOOLEAN,
-            "last_sync" TEXT,
-            "last_since" TEXT,
-            "next_since" TEXT
-        )
-        """
-        FARM_DDL = """
-            CREATE TABLE IF NOT EXISTS "farm" (
-            "id" INTEGER PRIMARY KEY,
-            "name" TEXT,
-            "holding_id" INTEGER,
-            "farm_type" TEXT,
-            "time_zone" TEXT,
-            "external_id" TEXT,
-            "customers_id" TEXT,
-            "internal_name" TEXT,
-            "last_sync" TEXT,
-            "last_since" TEXT,
-            "next_since" TEXT
-        )
-        """
-        try:
-            self.cursor.execute(HOLDING_DDL)
-        except Exception as e:
-            raise Exception(f"Failed to create table holding: {e}")
-        try:
-            self.cursor.execute(FARM_DDL)
-        except Exception as e:
-            raise Exception(f"Failed to create table holding: {e}")
-        
-        holdingsUpserted = 0
-        for hold in holdingRows:
-            try:
-                self.cursor.execute("""
-                    INSERT INTO "holding" ("id", "name", "parent_id", "external_id", "customers_id", "internal_name")
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT ("id") DO UPDATE SET
-                    "name" = excluded.name,
-                    "parent_id" = excluded.parent_id,
-                    "external_id" = excluded.external_id,
-                    "customers_id" = excluded.customers_id,
-                    "internal_name" = excluded.internal_name
-                                    """, (hold.id, hold.name, hold.parentId, hold.externalId, hold.customersId, hold.internalName))
-                holdingsUpserted += 1
-            except Exception as e:
-                raise Exception(f"Failed to upsert holding {hold.id}: {e}")
-        
-        farmsUpserted = 0
-        for farm in farmRows:
-            try:
-                self.cursor.execute("""
-                    INSERT INTO "farm" ("id", "name", "holding_id", "farm_type", "time_zone", "external_id", "customers_id", "internal_name")
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (id) DO UPDATE SET
-                    "name" = excluded."name",
-                    "holding_id" = excluded."holding_id",
-                    "farm_type" = excluded."farm_type",
-                    "time_zone" = excluded."time_zone",
-                    "external_id" = excluded."external_id",
-                    "customers_id" = excluded."customers_id",
-                    "internal_name" = excluded."internal_name"
-                                    """, (farm.id, farm.name, farm.holdingId, farm.farmType, farm.timeZone, farm.externalId, farm.customersId, farm.internalName))
-                farmsUpserted+=1
-            except Exception as e:
-                raise Exception(f"Failed to upsert farm {farm.id}: {e}")
-        self.conn.commit()
-        return {"holdingsUpserted": holdingsUpserted, "farmsUpserted": farmsUpserted}
-
-    def readHoldingIds(self)-> list[tuple[int, Optional[str]]]:
-        try:
-            self.cursor.execute('SELECT "id", "next_since" FROM "holding" WHERE "parent_id" IS NULL')
-            rows = self.cursor.fetchall()
-            return rows
-        except Exception as e:
-            raise Exception(f"Failed to collect holding IDs: {e}")
-
-    def readFarmIds(self) -> list[tuple[int, Optional[str]]]:
-        try:
-            self.cursor.execute('select "id", "next_since" from "farm"')
-            rows = self.cursor.fetchall()
-            return rows
-        except Exception as e:
-            raise Exception(f"Failed to collect farm IDs: {e}")
 
     async def applyDataChangesConsumer(self):
         batch = []
@@ -272,3 +154,71 @@ class SqliteGenerator(SqlGenerator):
         query = (f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} "
                  f"({partString.getvalue()}{primaryString})")
         return query, typeCache
+    
+    def getHoldingDdl(self):
+        return """
+            CREATE TABLE IF NOT EXISTS "holding" (
+            "id" INTEGER PRIMARY KEY,
+            "name" TEXT,
+            "parent_id" INTEGER,
+            "external_id" TEXT,
+            "customers_id" TEXT,
+            "internal_name" TEXT,
+            "active" BOOLEAN,
+            "last_sync" TEXT,
+            "last_since" TEXT,
+            "next_since" TEXT
+        )
+        """
+    
+    def getFarmDdl(self):
+        return """
+            CREATE TABLE IF NOT EXISTS "farm" (
+            "id" INTEGER PRIMARY KEY,
+            "name" TEXT,
+            "holding_id" INTEGER,
+            "farm_type" TEXT,
+            "time_zone" TEXT,
+            "external_id" TEXT,
+            "customers_id" TEXT,
+            "internal_name" TEXT,
+            "last_sync" TEXT,
+            "last_since" TEXT,
+            "next_since" TEXT
+        )
+        """
+    
+    def getHoldingInsertQuery(self) -> str:
+        placeholders = [self.placeholder for _ in range(6)]
+        return (''
+        'INSERT INTO "holding" ("id", "name", "parent_id", "external_id",'
+        ' "customers_id", "internal_name")'
+        f' VALUES ({', '.join(placeholders)})'
+        ' ON CONFLICT ("id") DO UPDATE SET'
+        ' "name" = excluded.name,'
+        ' "parent_id" = excluded.parent_id,'
+        ' "external_id" = excluded.external_id,'
+        ' "customers_id" = excluded.customers_id,'
+        ' "internal_name" = excluded.internal_name')
+
+
+    def getFarmInsertQuery(self) -> str:
+        placeholders = [self.placeholder for _ in range(8)]
+        return (''
+            'INSERT INTO "farm" ("id", "name", "holding_id", "farm_type", "time_zone",'
+            ' "external_id", "customers_id", "internal_name")'
+            f' VALUES ({', '.join(placeholders)})'
+            ' ON CONFLICT (id) DO UPDATE SET'
+            ' "name" = excluded."name",'
+            ' "holding_id" = excluded."holding_id",'
+            ' "farm_type" = excluded."farm_type",'
+            ' "time_zone" = excluded."time_zone",'
+            ' "external_id" = excluded."external_id",'
+            ' "customers_id" = excluded."customers_id",'
+            ' "internal_name" = excluded."internal_name"')
+    
+    def getHoldingIdsQuery(self)-> str:
+        return 'SELECT "id", "next_since" FROM "holding" WHERE "parent_id" IS NULL'
+
+    def getFarmIdsQuery(self) -> str:
+        return 'SELECT "id", "next_since" FROM "farm"'

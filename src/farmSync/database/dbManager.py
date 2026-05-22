@@ -2,35 +2,71 @@ from typing import Union, Optional, cast
 from farmSync.core.enums import Dialect, CsvOperation
 from farmSync.models import TableInfo, SchemaResults, HoldingRow, FarmRow, OrgSyncResult
 from farmSync.models import ServerDbConfig, SqliteDbConfig
-from farmSync.core import PipelineChannel
-from farmSync.database.queries import MsSqlGenerator, MySqlGenerator, SqliteGenerator, PostgresGenerator
+from farmSync.core.pipelineChannel import PipelineChannel
+from farmSync.database.queries import SqliteGenerator, PostgresGenerator
+from farmSync.database.queries import MsSqlGenerator, MySqlGenerator
+# database libraries
+import sqlite3
+import psycopg2
+# from psycopg2.extras import execute_values
+import mysql.connector as mysql
+import mssql_python
 
+from mysql.connector.abstracts import MySQLConnectionAbstract, MySQLCursorAbstract
+from mysql.connector.pooling import PooledMySQLConnection
+
+Generator = Union[SqliteGenerator, PostgresGenerator, MySqlGenerator, MsSqlGenerator]
+Connection = Union[sqlite3.Connection, psycopg2.extensions.connection,
+                   MySQLConnectionAbstract, PooledMySQLConnection, mssql_python.Connection]
+Cursor = Union[sqlite3.Cursor, psycopg2.extensions.cursor,
+               MySQLCursorAbstract, mssql_python.Cursor]
 class DbManager:
 
     def __init__(self, config: Union[ServerDbConfig, SqliteDbConfig], dialect: Dialect) -> None:
         self.config = config
         self.channel = None
-        self.database = self._getDatabase(dialect, config)
-        self.dialect = self.database.dialect
-        self.cursor = self.database.cursor
-        self.conn = self.database.conn
+        self.dialect = dialect
+        self.cursor: Cursor = None # type: ignore
+        self.conn: Connection = None # type: ignore
+        self.generator: Generator = None # type: ignore
+        self._establishConnection(dialect, config)
 
         self.typeCache: dict[str, dict[str, str]] = {}
         self.pkCache: dict[str, list[str]] = {}
     
-    def _getDatabase(self, dialect: Dialect, config: Union[ServerDbConfig, SqliteDbConfig]):
+    def _establishConnection(self, dialect: Dialect, config: Union[ServerDbConfig, SqliteDbConfig]):
         if dialect == Dialect.SQLITE:
-            config = cast(SqliteDbConfig, config)
-            return SqliteGenerator(config)
+            self.conn = sqlite3.connect(config.dbName)
+            self.cursor = self.conn.cursor()
+            self.generator = SqliteGenerator()
+            return
         if dialect == Dialect.POSTGRES:
             config = cast(ServerDbConfig, config)
-            return PostgresGenerator(config)
+            self.conn = psycopg2.connect(host=config.dbHost, port=config.dbPort,
+                                         dbname=config.dbName, user=config.dbUser,
+                                         password=config.dbPassword)
+            self.cursor = self.conn.cursor()
+            self.generator = PostgresGenerator()
+            return
         if dialect == Dialect.MYSQL:
             config = cast(ServerDbConfig, config)
-            return MySqlGenerator(config)
+            self.conn = mysql.connect(host=config.dbHost, port=config.dbPort,
+                                      database=config.dbName, user=config.dbUser,
+                                      password=config.dbPassword)
+            self.cursor = self.conn.cursor(dictionary=False)
+            self.generator = MySqlGenerator()
+            return
         if dialect == Dialect.MSSQL:
             config = cast(ServerDbConfig, config)
-            return MsSqlGenerator(config)
+            server = f"Server={config.dbHost},{config.dbPort};"
+            database = f"Database={config.dbName};"
+            authentication = f"UID={config.dbUser};PWD={config.dbPassword};"
+            settings = "TrustServerCertificate=yes;"
+            connectionString = server + database + authentication + settings
+            self.conn = mssql_python.connect(connectionString)
+            self.cursor = self.conn.cursor()
+            self.generator = MsSqlGenerator()
+            return
         raise Exception("Unknown dialect")
 
     def execSchema(self, tables: list[TableInfo]) -> SchemaResults:
@@ -55,13 +91,59 @@ class DbManager:
         return results
     
     def syncOrgData(self,holdingRows: list[HoldingRow], farmRows: list[FarmRow])-> OrgSyncResult:
-        pass
+        HOLDING_DDL = self.generator.getHoldingDdl()
+        FARM_DDL = self.generator.getFarmDdl()
+        try:
+            self.cursor.execute(HOLDING_DDL)
+        except Exception as e:
+            raise Exception(f"Failed to create table holding: {e}")
+        try:
+            self.cursor.execute(FARM_DDL)
+        except Exception as e:
+            raise Exception(f"Failed to create table holding: {e}")
+
+        holdingInsertSql = self.generator.getHoldingInsertQuery() 
+        holdingsUpserted = 0
+        for hold in holdingRows:
+            try:
+                self.cursor.execute(holdingInsertSql,
+                                    (hold.id, hold.name, hold.parentId, hold.externalId,
+                                     hold.customersId, hold.internalName))
+                holdingsUpserted += 1
+            except Exception as e:
+                raise Exception(f"Failed to upsert holding {hold.id}: {e}")
+        
+        farmInsertSql = self.generator.getFarmInsertQuery() 
+        farmsUpserted = 0
+        for farm in farmRows:
+            try:
+                self.cursor.execute(farmInsertSql,
+                                    (farm.id, farm.name, farm.holdingId, farm.farmType,
+                                     farm.timeZone, farm.externalId, farm.customersId,
+                                     farm.internalName))
+                farmsUpserted+=1
+            except Exception as e:
+                raise Exception(f"Failed to upsert farm {farm.id}: {e}")
+        self.conn.commit()
+        return {"holdingsUpserted": holdingsUpserted, "farmsUpserted": farmsUpserted}
 
     def readHoldingIds(self)-> list[tuple[int, Optional[str]]]:
-        pass
+        try:
+            query = self.generator.getHoldingIdsQuery()
+            self.cursor.execute(query)
+            rows = self.cursor.fetchall()
+            return rows # type: ignore
+        except Exception as e:
+            raise Exception(f"Failed to collect holding IDs: {e}")
 
     def readFarmIds(self) -> list[tuple[int, Optional[str]]]:
-        pass
+        try:
+            query = self.generator.getFarmIdsQuery()
+            self.cursor.execute(query)
+            rows = self.cursor.fetchall()
+            return rows # type: ignore
+        except Exception as e:
+            raise Exception(f"Failed to collect farm IDs: {e}")
 
     async def applyDataChangesConsumer(self):
         pass
@@ -84,7 +166,7 @@ class DbManager:
         pass
 
     def _getExistingCols(self,tableName:str) -> list[str]:
-        query, params, colIndex = self.database.getExistingColsQuery(tableName)
+        query, params, colIndex = self.generator.getExistingColsQuery(tableName)
         try: 
             self.cursor.execute(query, params)
             rows = self.cursor.fetchall()
@@ -94,7 +176,7 @@ class DbManager:
     
     def _addMissingCols(self, table: TableInfo, existing: list[str]) -> int:
         added = 0
-        queries = self.database.getAddColQueries(table, existing)
+        queries = self.generator.getAddColQueries(table, existing)
         for query, colName in queries:
             try:
                 self.cursor.execute(query)
@@ -106,7 +188,7 @@ class DbManager:
         return added
 
     def _tableExists(self,tableName: str) -> bool:
-        query = self.database.getTableExistQuery()
+        query = self.generator.getTableExistQuery()
         self.cursor.execute(query, (tableName,))
         result = self.cursor.fetchone()
         if result is None:
@@ -116,7 +198,7 @@ class DbManager:
         return bool(result)
 
     def _generateTable(self,table: TableInfo) -> None:
-        query, typeCache = self.database.getNewTableQuery(table)
+        query, typeCache = self.generator.getNewTableQuery(table)
         self.cursor.execute(query)
         self.conn.commit()
         self.typeCache[table.name] = typeCache

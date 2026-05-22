@@ -1,19 +1,25 @@
 import unittest
 from farmSync.database.queries import SqliteGenerator
-from farmSync.models import TableInfo, RsColumnInfo, SqliteDbConfig
-from farmSync.core.enums import Dialect
+from farmSync.models import TableInfo, RsColumnInfo
 
-class TestSqliteDatabaseQueries(unittest.TestCase):
+class TestSqliteGenerator(unittest.TestCase):
 
     def setUp(self):
-        dummyConfig = SqliteDbConfig(dbName=":memory:") 
-        self.db = SqliteGenerator(dummyConfig)
+        self.generator = SqliteGenerator()
 
     def testGetTableExistsQuery(self):
         """Verify the exact SQLite metadata table selection string layout."""
-        query = self.db.getTableExistQuery()
+        query = self.generator.getTableExistQuery()
         expected = f"SELECT 1 FROM sqlite_master WHERE type='table' AND name= ?"
         self.assertEqual(query, expected, "Query does not match expected format.")
+    
+    def testGetExistingColsQuery(self):
+        """Check if the query for getting existing columns in a table is correct."""
+        query, params, colIndex = self.generator.getExistingColsQuery("users")
+        expected = f"PRAGMA table_info(\"users\")"
+        self.assertEqual(query, expected, "Query does not match expected format.")
+        self.assertEqual(params, (), "Params are not empty.")
+        self.assertEqual(colIndex, 1, "Column index is not correct.")
 
     def testGetAddColQueries(self):
         """Verify it only appends alter statements for missing columns."""
@@ -23,7 +29,7 @@ class TestSqliteDatabaseQueries(unittest.TestCase):
         table = TableInfo(name="users", columns=[col1, col2, col3], key=["id"])
 
         existingCols = ["id"]
-        queries = self.db.getAddColQueries(table, existingCols)
+        queries = self.generator.getAddColQueries(table, existingCols)
 
         self.assertEqual(len(queries), 2, "Query count is not equal to given queries.")
         
@@ -43,10 +49,10 @@ class TestSqliteDatabaseQueries(unittest.TestCase):
         col2 = RsColumnInfo(name="username", jdbcType=12, dbTypeName="VARCHAR", scale=0, precision=255)
         table = TableInfo(name="profiles", columns=[col1, col2], key=["id"])
 
-        query, type_cache = self.db.getNewTableQuery(table)
+        query, type_cache = self.generator.getNewTableQuery(table)
 
         self.assertEqual(type_cache["id"], "INTEGER", "Type cache for id is not correct.")
         self.assertEqual(type_cache["username"], "TEXT", "Type cache for username is not correct.") 
 
-        expected_sql = "CREATE TABLE IF NOT EXISTS \"profiles\" (\"id\" INTEGER, \"username\" TEXT, PRIMARY KEY (\"id\"))"
-        self.assertEqual(query, expected_sql, "Query does not match expected format.")
+        expectedSql = "CREATE TABLE IF NOT EXISTS \"profiles\" (\"id\" INTEGER, \"username\" TEXT, PRIMARY KEY (\"id\"))"
+        self.assertEqual(query, expectedSql, "Query does not match expected format.")

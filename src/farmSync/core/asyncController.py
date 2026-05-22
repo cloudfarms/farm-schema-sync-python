@@ -1,6 +1,6 @@
 import asyncio
 from typing import Optional
-from farmSync.core import PipelineChannel
+from farmSync.core.pipelineChannel import PipelineChannel
 from farmSync.client import Client
 from farmSync.database import DbManager
 from farmSync.models import PythonTableInfo

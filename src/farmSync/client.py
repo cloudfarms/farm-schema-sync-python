@@ -3,7 +3,8 @@ from farmSync.config import Config
 from farmSync.models import AuthRequest, AuthResponse, TableInfo, OrgHolding,PythonTableInfo
 from farmSync.core.enums import State
 from typing import Optional
-from farmSync.core import PipelineChannel, CsvParser
+from farmSync.core.pipelineChannel import PipelineChannel
+from farmSync.core.csvParser import CsvParser
 
 class Client:
     """

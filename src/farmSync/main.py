@@ -2,7 +2,8 @@ from farmSync.config import loadConfig, loadDbConfig
 from farmSync.core.enums import Dialect
 from farmSync.client import Client
 from farmSync.database import DbManager
-from farmSync.core import Transforms, AsyncController
+from farmSync.core.transforms import Transforms
+from farmSync.core.asyncController import AsyncController
 from farmSync.models import ServerDbConfig, SqliteDbConfig
 import argparse
 import sys
@@ -56,7 +57,6 @@ async def run():
     print(f"---Columns added to existing tables: {results['colsAdded']}")
     print(f"---Total tables: {results['tablesCreated'] + results['tablesExisting']}")
 
-    raise Exception("test")
     holdings = client.getHoldings()
     holdingRows = Transforms.flatten_holdings(holdings, None)
     farmRows = Transforms.collectFarms(holdings)
@@ -74,6 +74,7 @@ async def run():
 
     print(f"\nSyncing data changes for {len(holdingIds)} holdings and {len(farmIds)} farms")
 
+    raise Exception("test")
     totalUpserted = 0
     totalDeleted = 0
     holdingsProcessed = 0
