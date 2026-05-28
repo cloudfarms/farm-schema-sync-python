@@ -72,13 +72,13 @@ async def run():
         try:
             lastSinceIndex = controller.channel.updateHeader.index("requestedSince")
             lastSince = controller.channel.updateRow[lastSinceIndex]
-        except:
+        except (ValueError, IndexError):
             lastSince = None
 
         try:
             nextSinceIndex = controller.channel.updateHeader.index("nextSince")
             nextSince = controller.channel.updateRow[nextSinceIndex]
-        except:
+        except (ValueError, IndexError):
             nextSince = None
         # update metadata for next time the app is run
         dbClient.updateHoldingMetadata(holdingId, lastSince, nextSince)
@@ -98,13 +98,13 @@ async def run():
         try:
             lastSinceIndex = controller.channel.updateHeader.index("requestedSince")
             lastSince = controller.channel.updateRow[lastSinceIndex]
-        except:
+        except (ValueError, IndexError):
             lastSince = None
 
         try:
             nextSinceIndex = controller.channel.updateHeader.index("nextSince")
             nextSince = controller.channel.updateRow[nextSinceIndex]
-        except:
+        except (ValueError, IndexError):
             nextSince = None
         # update metadata for next time the app is run
         dbClient.updateFarmMetadata(farmId, lastSince, nextSince)

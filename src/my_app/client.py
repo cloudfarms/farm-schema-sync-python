@@ -19,10 +19,8 @@ class Client:
     def authenticate(self):
         print("Authenticating...")
         authReq = AuthRequest(clientId=self.config.clientId, clientSecret=self.config.clientSecret)
-        response = self.client.post("/cfapi/auth", data=authReq.model_dump_json()) #type: ignore[reportArgumentType]
-        if response.status_code != 200:
-            raise Exception("incorrect credentials")
-        if not response.is_success:
+        response = self.client.post("/cfapi/auth", json=authReq.model_dump())
+        if response.status_code != 200 or not response.is_success:
             raise Exception("Authentication failed")
         auth = AuthResponse.model_validate(response.json())
         self.client.headers["Authorization"] = f"Bearer {auth.token}"

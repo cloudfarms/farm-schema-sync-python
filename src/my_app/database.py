@@ -18,10 +18,12 @@ class Database:
     def __init__(self,dbName):
         self.conn = sqlite3.connect(dbName)
         self.cursor = self.conn.cursor()
+        self._table_keys: dict[str, list[str]] = {}
     
     def execSchema(self, tables: list[TableInfo]) -> _SchemaResults:
         results: _SchemaResults = {"tablesCreated": 0, "tablesExisting": 0, "colsAdded": 0}
         for table in tables:
+            self._table_keys[table.name] = list(table.key)
             exists = self._tableExists(table.name)
             if exists:
                 existing = self._getExistingCols(table.name)
@@ -195,9 +197,17 @@ class Database:
             raise Exception(f"row does not match structure: {e}")
 
     def _delete(self, tableName: str, sections: list[str], values: list[list]):
-        whereClauses = [f"{self.quoteIdent(where)} = ?" for where in sections]
+        key_columns = self._table_keys.get(tableName, [])
+        if not key_columns:
+            raise Exception(f"No primary key information for table {tableName}; cannot build DELETE WHERE clause")
+        # Filter sections to only include key columns, preserving order
+        key_indices = [sections.index(col) for col in key_columns if col in sections]
+        if len(key_indices) != len(key_columns):
+            missing = set(key_columns) - set(sections)
+            raise Exception(f"Primary key columns {missing} not found in API response for table {tableName}")
+        whereClauses = [f"{self.quoteIdent(col)} = ?" for col in key_columns]
         sql = f"DELETE FROM {self.quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"
-        self.cursor.executemany(sql, values)
+        self.cursor.executemany(sql, ([row[i] for i in key_indices] for row in values))
 
     def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str], nextSince: Optional[str]):
         sql = f"UPDATE \"holding\" SET \"last_since\" = ?, \"next_since\" = ? WHERE \"id\" = ?"
@@ -278,7 +288,7 @@ class Database:
         sqlite = None
         try:
             sqlite = matchDict[jdbc]
-        except:
+        except KeyError:
             sqlite = "TEXT"
         return sqlite
 
