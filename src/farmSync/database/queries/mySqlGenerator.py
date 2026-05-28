@@ -1,8 +1,7 @@
 from farmSync.database.queries import SqlGenerator
-from farmSync.models import SchemaResults, FarmRow, HoldingRow, OrgSyncResult
-from farmSync.models import TableInfo, SectionItem, SyncItem, RsColumnInfo
-from farmSync.core.enums import State, CsvOperation, Dialect
-from typing import Optional, cast, Any
+from farmSync.models import TableInfo, RsColumnInfo
+from farmSync.core.enums import Dialect
+from typing import Any
 from farmSync.core.transforms import Transforms
 from io import StringIO
 
@@ -12,154 +11,7 @@ class MySqlGenerator(SqlGenerator):
     def __init__(self)->None:
         self.dialect = Dialect.MYSQL
         self.placeholder = "%s"
-
-    async def applyDataChangesConsumer(self):
-        batch = []
-        tableName: Optional[str] = None 
-        sections: Optional[list[str]] = None 
-        operation: Optional[CsvOperation] = None 
-        while True:
-            item = await self.channel.queue.get()
-            if item is None:
-                break
-            
-            if item["type"] == State.SECTION_NAME:
-                item = cast(SectionItem, item) 
-                if len(batch) > 0:
-                    if tableName is not None and operation is not None and sections is not None:
-                        self._applyDataChange(tableName, operation, sections, batch)
-                    else:
-                        raise Exception("could not apply change as some values are None")
-                tableName = item["table"]
-                operation = item["operation"]
-                continue
-
-            if item["type"] == State.HEADER:
-                item = cast(SyncItem, item)
-                sections = list(cast(list[str], item["data"]))
-                continue
-
-            if item["type"] == State.ROWS:
-                item = cast(SyncItem, item)
-                batch.append(item["data"])
-
-            if len(batch) >= 200:
-                if tableName is not None and operation is not None and sections is not None:
-                    self._applyDataChange(tableName, operation, sections, batch)
-                else:
-                    raise Exception("could not apply change as some values are None")
-        if batch:
-            if tableName is not None and operation is not None and sections is not None:
-                self._applyDataChange(tableName, operation, sections, batch)
-            else:
-                raise Exception("could not apply change as some values are None")
-        self.conn.commit()
-   
-    def _applyDataChange(self, tableName:str, operation: CsvOperation, sections: list[str],
-                         batch: list[list]):
-        if operation == CsvOperation.UPSERT:
-            self._upsert(tableName, sections, batch)
-            self.channel.results["rowsUpserted"] += len(batch)
-        elif operation == CsvOperation.DELETE:
-            self._delete(tableName, sections, batch)
-            self.channel.results["rowsDeleted"] += len(batch)
-        else:
-            raise Exception(f"Unknown operation type: {operation}")
-        batch.clear()
     
-    def _getTablePrimaries(self, tableName: str) -> list[str]:
-        sql = """
-            SELECT column_name
-            FROM information_schema.key_column_usage
-            WHERE table_schema = DATABASE()
-            AND table_name = %s
-            AND constraint_name = 'PRIMARY'
-            ORDER BY ordinal_position;
-            """
-        self.cursor.execute(sql, (tableName, ))
-        rows = self.cursor.fetchall()
-        return [row[0] for row in rows] # type: ignore
-
-    def _upsert(self, tableName: str, sections: list[str], values: list[list]):
-        try:
-            primaries = set(self._getTablePrimaries(tableName))
-        except:
-            raise Exception(f"Failed to get primary keys for table {tableName}")
-
-        colSet = set(sections)
-        isOnlyPrimaries = False
-        if colSet == primaries:
-            isOnlyPrimaries = True
-
-        if isOnlyPrimaries:
-            sql = f"INSERT IGNORE INTO {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) VALUES ({', '.join(['%s'] * len(sections))})"
-        else:
-            insertSql = f"INSERT INTO {self._quoteIdent(tableName)} ({', '.join([self._quoteIdent(section) for section in sections])}) VALUES ({', '.join(['%s'] * len(sections))})"
-            updateSql = f"ON DUPLICATE KEY UPDATE {', '.join([f'{self._quoteIdent(section)} = VALUES({self._quoteIdent(section)})' for section in sections])}"
-            sql = f"{insertSql} {updateSql}"
-
-        try:
-            self.cursor.executemany(sql, values)
-        except Exception as e:
-            raise Exception(f"row does not match structure: {e}")
-
-    def _delete(self, tableName: str, sections: list[str], values: list[list]):
-        whereClauses = [f"{self._quoteIdent(where)} = %s" for where in sections]
-        sql = f"DELETE FROM {self._quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"
-        self.cursor.executemany(sql, values)
-
-    def updateHoldingMetadata(self, holdingId: int, lastSince: Optional[str], nextSince: Optional[str]):
-        sql = f"UPDATE `holding` SET `last_since` = %s, `next_since` = %s WHERE `id` = %s"
-        self.cursor.execute(sql, (lastSince, nextSince, holdingId))
-        self.conn.commit()
-
-    def updateFarmMetadata(self, farmId: int, lastSince: Optional[str], nextSince: Optional[str]):
-        sql = f"UPDATE `farm` SET `last_since` = %s, `next_since` = %s WHERE `id` = %s"
-        self.cursor.execute(sql, (lastSince, nextSince, farmId))
-        self.conn.commit()
-
-    def _getExistingCols(self,tableName:str) -> list[str]:
-        self.cursor.execute(f"DESCRIBE {tableName}")
-        try:
-            columns = [row[0] for row in self.cursor.fetchall()] # type: ignore
-        except Exception as e:
-            raise Exception(f"Failed to read columns for {tableName}: {e}")
-        return cast(list[str], columns)
-    
-    def _addMissingCols(self, table: TableInfo, existing: list[str]) -> int:
-        added = 0
-        for col in table.columns:
-            if col.name not in existing:
-                sqlType = Transforms.jdbcToDialect(col.jdbcType, self.dialect)
-                try:
-                    finalType = self._addPrecision(col.precision, sqlType) 
-                    self.cursor.execute(f"alter table {self._quoteIdent(table.name)} add column {self._quoteIdent(col.name)} {finalType}")
-                    self.conn.commit()
-                    print(f'Added col {col.name} to {table.name}')
-                    added += 1
-                except Exception as e:
-                    raise Exception(f"failed to add column {col.name} into {table.name}: {e}")
-        return added
-
-    def _tableExists(self,tableName: str) -> bool:
-        self.cursor.execute(f"SHOW TABLES LIKE %s", (tableName,))
-        return self.cursor.fetchone() is not None
-
-    def _generateTable(self,table: TableInfo) -> None:
-        parts = {jdbc.name: (Transforms.jdbcToDialect(jdbc.jdbcType, self.dialect), jdbc.precision) for jdbc in table.columns}
-        partString = StringIO()
-        for col, info in parts.items():
-            type, precision = info
-            partString.write(f"{self._quoteIdent(col)}")
-            partString.write(f" {self._addPrecision(precision, type)}")
-            partString.write(", ")
-
-        primaryString = ""
-        if len(table.key) > 0:
-            primaryString = f"PRIMARY KEY ({','.join(self._quoteIdent(k) for k in table.key)})"
-        self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} ({partString.getvalue()}{primaryString})")
-        self.conn.commit()
-        
     def _quoteIdent(self, name: str) -> str:
         escaped = name.replace('`', '``')
         return f'`{escaped}`'
@@ -181,8 +33,8 @@ class MySqlGenerator(SqlGenerator):
     def getTableExistQuery(self) -> str:
         return f"SHOW TABLES LIKE {self.placeholder}"
 
-    def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], int]:
-        return f"DESCRIBE {self._quoteIdent(tableName)}",(), 0
+    def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], tuple[int,int]]:
+        return f"DESCRIBE {self._quoteIdent(tableName)}",(), (0,1)
 
     def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
         queries = []
@@ -208,7 +60,7 @@ class MySqlGenerator(SqlGenerator):
             partString.write(", ")
         primaryString = self._getPrimaryKeyString(table.key)
         query = (f"CREATE TABLE IF NOT EXISTS {self._quoteIdent(table.name)} "
-                 f"({partString.getvalue()}{primaryString})")
+                 f"({partString.getvalue()}{primaryString});")
         return query, typeCache
 
     def getHoldingDdl(self):
@@ -278,3 +130,31 @@ class MySqlGenerator(SqlGenerator):
 
     def getFarmIdsQuery(self) -> str:
         return 'SELECT `id`, `next_since` FROM `farm`'
+
+    def getUpdateHoldingMetaQuery(self)->str:
+        return (f"UPDATE `holding` SET `last_since` = {self.placeholder},"
+                f" `next_since` = {self.placeholder} WHERE `id` = {self.placeholder}")
+
+    def getUpdateFarmMetaQuery(self)->str:
+        return (f"UPDATE `farm` SET `last_since` = {self.placeholder},"
+                f" `next_since` = {self.placeholder} WHERE `id` = {self.placeholder}")
+    
+    def getUpsertQuery(self, tableName: str, sections: list[str], primaries: set[str])->str:
+        colSet = set(sections)
+        isOnlyPrimaries = colSet == primaries
+
+        quotedTable = self._quoteIdent(tableName)
+        quotedSections = [self._quoteIdent(section) for section in sections]
+        joinedSections = ', '.join(quotedSections)
+        placeholders = ', '.join([self.placeholder] * len(sections))
+        if isOnlyPrimaries:
+            return f"INSERT IGNORE INTO {quotedTable} ({joinedSections}) VALUES ({placeholders})"
+        else:
+            insertSql = f"INSERT INTO {quotedTable} ({joinedSections}) VALUES ({placeholders})"
+            updateSections = ', '.join([f'{section} = VALUES({section})' for section in quotedSections])
+            updateSql = f"ON DUPLICATE KEY UPDATE {updateSections}"
+            return f"{insertSql} {updateSql}"
+
+    def getDeleteQuery(self, tableName: str, sections: list[str])-> str:
+        whereClauses = [f"{self._quoteIdent(where)} = {self.placeholder}" for where in sections]
+        return f"DELETE FROM {self._quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"

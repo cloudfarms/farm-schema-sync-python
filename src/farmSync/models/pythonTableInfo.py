@@ -3,5 +3,5 @@ from farmSync.models import PythonColumnInfo
 
 class PythonTableInfo(BaseModel):
     name: str
-    columns: list[PythonColumnInfo]
+    columns: dict[str, PythonColumnInfo]
     key: list[str]

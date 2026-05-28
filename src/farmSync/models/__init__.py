@@ -15,6 +15,6 @@ from .schemaResults import SchemaResults
 from .pythonColumnInfo import PythonColumnInfo
 from .pythonTableInfo import PythonTableInfo
 
-__all__ = ["AuthRequest", "AuthResponse", "RsColumnInfo", "TableInfo", "ApiError", "OrgFarm", "OrgHolding", "HoldingRow", "FarmRow", 
+__all__ = ["AuthRequest", "AuthResponse", "RsColumnInfo", "TableInfo", "OrgFarm", "OrgHolding", "HoldingRow", "FarmRow", 
            "SectionItem", "SyncItem", "DataSyncResult", "ServerDbConfig", "SqliteDbConfig", "OrgSyncResult", "SchemaResults",
            "PythonColumnInfo", "PythonTableInfo"]

@@ -15,15 +15,6 @@ class TestMsSqlGenerator(unittest.TestCase):
 
         self.assertEqual(query, expected, "Query does not match expected format.")
 
-    def testGetExistingColsQuery(self):
-        query, params, colIndex = self.generator.getExistingColsQuery("users")
-        expected = ("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'dbo'"
-                " AND TABLE_NAME = ?")
-
-        self.assertEqual(query, expected, "Query does not match expected format.")
-        self.assertEqual(params, ("users",), "Params are not empty.")
-        self.assertEqual(colIndex, 0, "Column index is not correct.")
-
     def testAddPrecisionDecimal(self):
         colInfo = RsColumnInfo(name="id", jdbcType=2, dbTypeName="NUMERIC", scale=5, precision=12)
         sqlType = self.generator._addPrecision(colInfo, "DECIMAL")

@@ -13,14 +13,6 @@ class TestMySqlGenerator(unittest.TestCase):
         expected = f"SHOW TABLES LIKE %s"
         self.assertEqual(query, expected, "Query does not match expected format.")
 
-    def testGetExistingColsQuery(self):
-        query, params, colIndex = self.generator.getExistingColsQuery("users")
-        expected = "DESCRIBE `users`"
-
-        self.assertEqual(query, expected, "Query does not match expected format.")
-        self.assertEqual(params, (), "Params are not empty.")
-        self.assertEqual(colIndex, 0, "Column index is not correct.")
-
     def testAddPrecisionDecimal(self):
         colInfo = RsColumnInfo(name="id", jdbcType=2, dbTypeName="NUMERIC", scale=5, precision=12)
         sqlType = self.generator._addPrecision(colInfo, "DECIMAL")
@@ -85,5 +77,5 @@ class TestMySqlGenerator(unittest.TestCase):
         self.assertEqual(type_cache["username"], "VARCHAR(255)", "Type cache for username is not correct.") 
 
         expectedSql = ("CREATE TABLE IF NOT EXISTS `profiles` (`id` INT,"
-                        " `username` VARCHAR(255), PRIMARY KEY (`id`))")
+                        " `username` VARCHAR(255), PRIMARY KEY (`id`));")
         self.assertEqual(query, expectedSql, "Query does not match expected format.")

@@ -16,4 +16,4 @@ class AsyncController:
 
     async def run(self, url:str, since: Optional[str]):
         await asyncio.gather(self.producer.holdingChangesProducer(url, since, self.tableMap),
-                             self.consumer.applyDataChangesConsumer(), return_exceptions=True)
+                             self.consumer.applyDataChangesConsumer())

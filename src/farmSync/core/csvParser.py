@@ -13,22 +13,31 @@ class CsvParser:
         self.channel = channel
         self.state = State.START
         self.translation = None
+        self.cols = []
 
     def translateToPython(self, line: Union[SectionItem, SyncItem],
                           tableMap: dict[str, PythonTableInfo]):
-        if line["type"] == State.SECTION_NAME:
-            line = cast(SectionItem, line)
-            self.translation = tableMap[line["table"]]
-        if line["type"] == State.ROWS:
-            line = cast(SyncItem, line)
-            cols = []
-            if self.translation is None:
-                raise Exception("Translation is not set for this table")
-            for i, col in enumerate(line["data"]):
-                translation = self.translation.columns[i]
-                cols.append(Transforms.strToType(col, translation.typeName, self.channel.dialect))
-            line["data"] = tuple(cols)
-        return line
+        try:
+            if line["type"] == State.SECTION_NAME:
+                line = cast(SectionItem, line)
+                self.translation = tableMap[line["table"]]
+            if line["type"] == State.HEADER:
+                line = cast(SyncItem, line)
+                self.cols = line["data"]
+            if line["type"] == State.ROWS:
+                line = cast(SyncItem, line)
+                cols = []
+                if self.translation is None:
+                    raise Exception("Translation is not set for this table")
+                for i, col in enumerate(line["data"]):
+                    translation = self.translation.columns[self.cols[i]]
+                    cols.append(Transforms.strToType(col, translation.typeName, self.channel.dialect))
+                line["data"] = tuple(cols)
+            return line
+        except Exception as e:
+            print(e)
+            raise e
+
     
     def parseLine(self, line:Optional[str]) -> Optional[Union[SectionItem, SyncItem]]:
         """

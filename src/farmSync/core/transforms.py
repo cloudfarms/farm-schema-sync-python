@@ -100,10 +100,10 @@ class Transforms:
     def getTableMap(tables: list[TableInfo]):
         finalTables = {}
         for table in tables:
-            cols = []
+            cols = {}
             for col in table.columns:
                 colType = Transforms.jdbcToPython(col.jdbcType)
-                cols.append(PythonColumnInfo(name=col.name, typeName=colType))
+                cols[col.name] = PythonColumnInfo(name=col.name, typeName=colType)
             finalTables[table.name] = PythonTableInfo(name=table.name, columns=cols, key=table.key)
         return finalTables
 

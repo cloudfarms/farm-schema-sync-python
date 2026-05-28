@@ -5,3 +5,4 @@ notes.*
 venv/
 __pycache__/
 **/*.egg-info/
+*db-journal

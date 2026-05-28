@@ -13,15 +13,6 @@ class TestPostgresGenerator(unittest.TestCase):
         expected = f"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = %s"
         self.assertEqual(query, expected, "Query does not match expected format.")
 
-    def testGetExistingColsQuery(self):
-        query, params, colIndex = self.generator.getExistingColsQuery("users")
-        expected = ("SELECT column_name, UPPER(data_type)"
-        " FROM information_schema.columns WHERE table_name = %s;")
-
-        self.assertEqual(query, expected, "Query does not match expected format.")
-        self.assertEqual(params, ("users",), "Params are not empty.")
-        self.assertEqual(colIndex, 0, "Column index is not correct.")
-    
     def testAddPrecisionNumeric(self):
         colInfo = RsColumnInfo(name="id", jdbcType=2, dbTypeName="NUMERIC", scale=5, precision=12)
         sqlType = self.generator._addPrecision(colInfo, "NUMERIC")

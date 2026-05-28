@@ -74,7 +74,7 @@ async def run():
 
     print(f"\nSyncing data changes for {len(holdingIds)} holdings and {len(farmIds)} farms")
 
-    raise Exception("test")
+    # raise Exception("test")
     totalUpserted = 0
     totalDeleted = 0
     holdingsProcessed = 0

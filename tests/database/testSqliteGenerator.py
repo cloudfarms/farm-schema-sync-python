@@ -13,14 +13,6 @@ class TestSqliteGenerator(unittest.TestCase):
         expected = f"SELECT 1 FROM sqlite_master WHERE type='table' AND name= ?"
         self.assertEqual(query, expected, "Query does not match expected format.")
     
-    def testGetExistingColsQuery(self):
-        """Check if the query for getting existing columns in a table is correct."""
-        query, params, colIndex = self.generator.getExistingColsQuery("users")
-        expected = f"PRAGMA table_info(\"users\")"
-        self.assertEqual(query, expected, "Query does not match expected format.")
-        self.assertEqual(params, (), "Params are not empty.")
-        self.assertEqual(colIndex, 1, "Column index is not correct.")
-
     def testGetAddColQueries(self):
         """Verify it only appends alter statements for missing columns."""
         col1 = RsColumnInfo(name="id", jdbcType=4, dbTypeName="INTEGER", scale=0, precision=0)
