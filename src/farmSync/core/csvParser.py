@@ -16,28 +16,23 @@ class CsvParser:
         self.cols = []
 
     def translateToPython(self, line: Union[SectionItem, SyncItem],
-                          tableMap: dict[str, PythonTableInfo]):
-        try:
-            if line["type"] == State.SECTION_NAME:
-                line = cast(SectionItem, line)
-                self.translation = tableMap[line["table"]]
-            if line["type"] == State.HEADER:
-                line = cast(SyncItem, line)
-                self.cols = line["data"]
-            if line["type"] == State.ROWS:
-                line = cast(SyncItem, line)
-                cols = []
-                if self.translation is None:
-                    raise Exception("Translation is not set for this table")
-                for i, col in enumerate(line["data"]):
-                    translation = self.translation.columns[self.cols[i]]
-                    cols.append(Transforms.strToType(col, translation.typeName, self.channel.dialect))
-                line["data"] = tuple(cols)
-            return line
-        except Exception as e:
-            print(e)
-            raise e
-
+                          tableMap: dict[str, PythonTableInfo])-> Union[SectionItem, SyncItem]:
+        if line["type"] == State.SECTION_NAME:
+            line = cast(SectionItem, line)
+            self.translation = tableMap[line["table"]]
+        if line["type"] == State.HEADER:
+            line = cast(SyncItem, line)
+            self.cols = line["data"]
+        if line["type"] == State.ROWS:
+            line = cast(SyncItem, line)
+            cols = []
+            if self.translation is None:
+                raise Exception("Translation is not set for this table")
+            for i, col in enumerate(line["data"]):
+                translation = self.translation.columns[self.cols[i]]
+                cols.append(Transforms.strToType(col, translation.typeName, self.channel.dialect))
+            line["data"] = tuple(cols)
+        return line
     
     def parseLine(self, line:Optional[str]) -> Optional[Union[SectionItem, SyncItem]]:
         """
@@ -60,7 +55,7 @@ class CsvParser:
         if line == "*":
             return None
 
-        if len(line.split(",")) == 1 and len(line.split("_")) > 1:
+        if line.endswith("_upserted") or line.endswith("_deleted"):
             self.state = State.SECTION_NAME
 
         if self.state == State.METADATA_HEADER:

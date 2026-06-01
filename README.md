@@ -17,12 +17,21 @@ with the following entries:
 CF_BASE_URL="https://pigs.cloudfarms.com"
 CF_CLIENT_ID="your client id"
 CF_CLIENT_SECRET="your client secret"
+
+# possible setup for mysql/postgres/mssql
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=yourDbName
+DB_USER=yourDbUser
+DB_PASSWORD=yourDbPassword
 ```
 
 The application will create all the needed tables and load the data from Cloudfarms. 
-If the database already exits, the application load just the data changed since the last download.
 
-By default, the database file is called `farmSync.db`. It is possible to rename the file by adding a command line argument with the name of the file.
+For sqlite, the extra variables inside the .env are unnecessary. In case of that, by default the database is called
+`farmSync.db`, however it can be changed by using the `-db` parameter.
+
+For specifying which database should be used, please use the `-d` parameter. Default is sqlite.
 
 ## Setup
 

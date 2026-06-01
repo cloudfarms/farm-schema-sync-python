@@ -1,11 +1,5 @@
-from typing import Union, Optional, cast
+from typing import Union, Optional, cast, Final
 from collections.abc import Callable
-from farmSync.core.enums import Dialect, CsvOperation, State
-from farmSync.models import TableInfo, SchemaResults, HoldingRow, FarmRow, OrgSyncResult
-from farmSync.models import ServerDbConfig, SqliteDbConfig, SectionItem, SyncItem
-from farmSync.core.pipelineChannel import PipelineChannel
-from farmSync.database.queries import SqliteGenerator, PostgresGenerator
-from farmSync.database.queries import MsSqlGenerator, MySqlGenerator
 import sqlite3
 import psycopg2
 from psycopg2.extras import execute_values
@@ -15,6 +9,13 @@ import mssql_python
 from mysql.connector.abstracts import MySQLConnectionAbstract, MySQLCursorAbstract
 from mysql.connector.pooling import PooledMySQLConnection
 
+from farmSync.core.enums import Dialect, CsvOperation, State
+from farmSync.models import TableInfo, SchemaResults, HoldingRow, FarmRow, OrgSyncResult
+from farmSync.models import ServerDbConfig, SqliteDbConfig, SectionItem, SyncItem
+from farmSync.core.pipelineChannel import PipelineChannel
+from farmSync.database.queries import SqliteGenerator, PostgresGenerator
+from farmSync.database.queries import MsSqlGenerator, MySqlGenerator
+
 Generator = Union[SqliteGenerator, PostgresGenerator, MySqlGenerator, MsSqlGenerator]
 Connection = Union[sqlite3.Connection, psycopg2.extensions.connection,
                    MySQLConnectionAbstract, PooledMySQLConnection, mssql_python.Connection]
@@ -23,6 +24,7 @@ Cursor = Union[sqlite3.Cursor, psycopg2.extensions.cursor,
 class DbManager:
 
     def __init__(self, config: Union[ServerDbConfig, SqliteDbConfig], dialect: Dialect) -> None:
+        
         self.config = config
         self.channel: PipelineChannel = None # type: ignore
         self.dialect = dialect
@@ -114,8 +116,8 @@ class DbManager:
             Creates and updates all the holdings and farms that are in the database to reflect
             what the user has access to. 
         """
-        HOLDING_DDL = self.generator.getHoldingDdl()
-        FARM_DDL = self.generator.getFarmDdl()
+        HOLDING_DDL: Final = self.generator.getHoldingDdl()
+        FARM_DDL: Final = self.generator.getFarmDdl()
         try:
             self.cursor.execute(HOLDING_DDL)
         except Exception as e:
@@ -251,8 +253,8 @@ class DbManager:
     def _postgresUpsert(self, tableName: str, sections: list[str], values: list[tuple]):
         try:
             primaries = set(self.pkCache[tableName])
-        except Exception:
-            raise Exception(f"Failed to get primary keys for table {tableName}")
+        except Exception as e:
+            raise Exception(f"Failed to get primary keys for table {tableName}: {e}")
 
         self.generator = cast(PostgresGenerator, self.generator)
         sql = self.generator.getUpsertQuery(tableName, sections, primaries)
@@ -267,8 +269,8 @@ class DbManager:
     def _mysqlUpsert(self, tableName: str, sections: list[str], values: list[tuple]):
         try:
             primaries = set(self.pkCache[tableName])
-        except:
-            raise Exception(f"Failed to get primary keys for table {tableName}")
+        except Exception as e:
+            raise Exception(f"Failed to get primary keys for table {tableName}: {e}")
 
         self.generator = cast(MySqlGenerator, self.generator)
         sql = self.generator.getUpsertQuery(tableName, sections, primaries)
@@ -292,7 +294,7 @@ class DbManager:
         mergeSql = self.generator.getUpsertQuery(tableName, sections, primaries, tempTable)
         try:
             self.cursor.execute(createStagingSql)
-            self.conn.commit() # bulkcopy creates a new connection and needs to see the temporary table
+            self.conn.commit() # bulkcopy creates a new connection 
             self.cursor.bulkcopy(tempTable, values, table_lock=True, batch_size=5000, timeout=120) # type: ignore
             self.cursor.execute(mergeSql)
             self.cursor.execute(f"DROP TABLE {self.generator._quoteIdent(tempTable)}")

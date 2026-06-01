@@ -58,7 +58,7 @@ async def run():
     print(f"---Total tables: {results['tablesCreated'] + results['tablesExisting']}")
 
     holdings = client.getHoldings()
-    holdingRows = Transforms.flatten_holdings(holdings, None)
+    holdingRows = Transforms.flattenHoldings(holdings, None)
     farmRows = Transforms.collectFarms(holdings)
 
     print(f"Found {len(holdingRows)} holdings and {len(farmRows)} farms")
@@ -74,7 +74,6 @@ async def run():
 
     print(f"\nSyncing data changes for {len(holdingIds)} holdings and {len(farmIds)} farms")
 
-    # raise Exception("test")
     totalUpserted = 0
     totalDeleted = 0
     holdingsProcessed = 0

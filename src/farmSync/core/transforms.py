@@ -12,7 +12,7 @@ class Transforms:
         Handles other logic, such as transformation of data 
     """
     @staticmethod
-    def flatten_holdings(holdings: list[OrgHolding], parentId: Optional[int]) -> list[HoldingRow]:
+    def flattenHoldings(holdings: list[OrgHolding], parentId: Optional[int]) -> list[HoldingRow]:
         rows = []
         for holding in holdings:
             row = HoldingRow.model_validate({"id": holding.id, "name": holding.name,
@@ -21,22 +21,23 @@ class Transforms:
                                             "internalName": holding.internalName})
             rows.append(row)
             if holding.subholdings is not None:
-                rows.extend(Transforms.flatten_holdings(holding.subholdings, holding.id))
+                rows.extend(Transforms.flattenHoldings(holding.subholdings, holding.id))
         return rows
     
     @staticmethod
     def collectFarms(holdings: list[OrgHolding]) -> list[FarmRow]:
         rows = []
         for holding in holdings:
-            if holding.farms is not None:
-                for farm in holding.farms:
-                    row = FarmRow.model_validate({"id": farm.id, "name": farm.name,
-                                                  "holdingId": holding.id,"farmType": farm.farmType, 
-                                                  "timeZone": farm.timeZone,
-                                                  "externalId": farm.externalId,
-                                                  "customersId": farm.customersId,
-                                                  "internalName": farm.internalName})
-                    rows.append(row)
+            if holding.farms is None:
+                continue
+            for farm in holding.farms:
+                row = FarmRow.model_validate({"id": farm.id, "name": farm.name,
+                                                "holdingId": holding.id,"farmType": farm.farmType, 
+                                                "timeZone": farm.timeZone,
+                                                "externalId": farm.externalId,
+                                                "customersId": farm.customersId,
+                                                "internalName": farm.internalName})
+                rows.append(row)
             if holding.subholdings is not None:
                 rows.extend(Transforms.collectFarms(holding.subholdings))
         return rows
@@ -108,28 +109,28 @@ class Transforms:
         return finalTables
 
     @staticmethod
-    def strToType(col: str, type: type, dialect: Dialect)-> Any:
+    def strToType(col: str, typeHint: type, dialect: Dialect)-> Any:
         if col == "":
             return None
-        if type == str:
+        if typeHint == str:
             return col
-        if type == int:
+        if typeHint == int:
             return int(col)
-        if type == float:
+        if typeHint == float:
             return float(col)
-        if type == datetime:
+        if typeHint == datetime:
             if dialect == Dialect.MYSQL:
                 return col.replace("T", " ").replace("Z", "")
             return col 
-        if type == time:
+        if typeHint == time:
             if dialect == Dialect.MYSQL:
                 return col.replace("Z", "")
             return col
-        if type == bool:
+        if typeHint == bool:
             if col.lower() == "n":
                 return False
             return True
-        if type == bytes:
+        if typeHint == bytes:
             return col.encode('utf-8')
 
         return col

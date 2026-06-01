@@ -14,13 +14,14 @@ class Client:
         self.config = config
         self.client = httpx.Client(base_url=config.baseUrl)
         self.state = State.START
-        self.channel = None
+        self.channel: Optional[PipelineChannel] = None
 
     def authenticate(self):
         print("Authenticating...")
         authReq = AuthRequest(clientId=self.config.clientId, clientSecret=self.config.clientSecret)
+        # using json= for some reason doesn't work with JSON and data= works?
         response = self.client.post("/cfapi/auth", data=authReq.model_dump_json()) #type: ignore[reportArgumentType]
-        if response.status_code != 200:
+        if response.status_code == 401:
             raise Exception("incorrect credentials")
         if not response.is_success:
             raise Exception("Authentication failed")
