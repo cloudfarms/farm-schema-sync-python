@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from farmSync.models import ServerDbConfig
 
 load_dotenv()
 
@@ -12,17 +13,6 @@ class Config:
     baseUrl: str
     clientId: str
     clientSecret: str
-
-@dataclass(frozen=True)
-class DbConfig:
-    """
-        Storage for database related env variables
-    """
-    dbName: str
-    dbHost: str
-    dbPort: int
-    dbUser: str
-    dbPassword: str
 
 def requireEnv(name: str) -> str:
     val = os.getenv(name)
@@ -38,8 +28,8 @@ def loadConfig() -> Config:
     clientSecret = requireEnv("CF_CLIENT_SECRET")
     )
 
-def loadDbConfig() -> DbConfig:
-    return DbConfig(
+def loadDbConfig() -> ServerDbConfig:
+    return ServerDbConfig(
         dbName = requireEnv("DB_NAME"),
         dbHost = requireEnv("DB_HOST"),
         dbPort = int(requireEnv("DB_PORT")),

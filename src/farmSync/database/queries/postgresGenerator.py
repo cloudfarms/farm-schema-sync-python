@@ -28,7 +28,7 @@ class PostgresGenerator(SqlGenerator):
         f" WHERE table_name = {self.placeholder};")
         return query, (tableName,), (0,1)
 
-    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
+    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[tuple[str, str]]:
         queries = []
         for col in table.columns:
             if col.name not in existing:
@@ -143,12 +143,12 @@ class PostgresGenerator(SqlGenerator):
             conflictQuery = f"ON CONFLICT ({', '.join(quotedPrimaries)}) DO NOTHING"
         else:
             conflictQuery = f"ON CONFLICT ({', '.join(quotedPrimaries)}) DO UPDATE SET"
-            updateSet = StringIO()
+            updateParts = []
             for section in sections:
                 if section not in primaries:
                     quotedSection = self._quoteIdent(section)
-                    updateSet.write(f"{quotedSection} = EXCLUDED.{quotedSection}, ")        
-            conflictQuery = f"{conflictQuery} {updateSet.getvalue()[:-2]}"
+                    updateParts.append(f"{quotedSection} = EXCLUDED.{quotedSection}")        
+            conflictQuery = f"{conflictQuery} {", ".join(updateParts)}"
 
         quotedTable = self._quoteIdent(tableName)
         quotedSections = ', '.join([self._quoteIdent(section) for section in sections])

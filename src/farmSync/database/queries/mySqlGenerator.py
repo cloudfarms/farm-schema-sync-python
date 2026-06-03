@@ -36,7 +36,7 @@ class MySqlGenerator(SqlGenerator):
     def getExistingColsQuery(self,tableName:str) -> tuple[str,tuple[Any, ...], tuple[int,int]]:
         return f"DESCRIBE {self._quoteIdent(tableName)}",(), (0,1)
 
-    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
+    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[tuple[str, str]]:
         queries = []
         for col in table.columns:
             if col.name not in existing:
@@ -139,7 +139,7 @@ class MySqlGenerator(SqlGenerator):
         return (f"UPDATE `farm` SET `last_since` = {self.placeholder},"
                 f" `next_since` = {self.placeholder} WHERE `id` = {self.placeholder}")
     
-    def getUpsertQuery(self, tableName: str, sections: list[str], primaries: set[str])->str:
+    def getUpsertQuery(self, tableName: str, sections: list[str], primaries: set[str])-> str:
         colSet = set(sections)
         isOnlyPrimaries = colSet == primaries
 

@@ -15,6 +15,7 @@ class Client:
         self.client = httpx.Client(base_url=config.baseUrl)
         self.state = State.START
         self.channel: Optional[PipelineChannel] = None
+        self.buffer = None
 
     def authenticate(self):
         print("Authenticating...")

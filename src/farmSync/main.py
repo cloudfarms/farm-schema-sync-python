@@ -4,7 +4,7 @@ from farmSync.client import Client
 from farmSync.database import DbManager
 from farmSync.core.transforms import Transforms
 from farmSync.core.asyncController import AsyncController
-from farmSync.models import ServerDbConfig, SqliteDbConfig
+from farmSync.models import SqliteDbConfig
 import argparse
 import sys
 import re
@@ -39,7 +39,7 @@ async def run():
         print(f"DATABASE NAME: {dbName}")
         dbConfig = SqliteDbConfig.model_validate({"dbName": dbName})
     else:
-        dbConfig = ServerDbConfig.model_validate(loadDbConfig().__dict__)
+        dbConfig = loadDbConfig()
         print(f'DATABASE NAME: {dbConfig.dbName}')
 
     config = loadConfig()
@@ -106,6 +106,7 @@ async def run():
 
         dbClient.updateHoldingMetadata(holdingId, lastSince, nextSince)
 
+    lastTimestamp = time.time()
     for farmId, since in farmIds:
         print(f"Farm {farmId} (since: {since})...", end="")
         path = f"/cfapi/farm/{farmId}/data-changes"

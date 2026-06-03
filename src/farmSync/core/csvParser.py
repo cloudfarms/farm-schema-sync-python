@@ -9,20 +9,22 @@ import csv
 class CsvParser:
 
     def __init__(self, channel: PipelineChannel) -> None:
-        self.buffer = None
+        self.buffer: Optional[list[str]] = None
         self.channel = channel
         self.state = State.START
-        self.translation = None
-        self.cols = []
+        self.translation: Optional[PythonTableInfo] = None
+        self.cols:tuple = ()
 
     def translateToPython(self, line: Union[SectionItem, SyncItem],
                           tableMap: dict[str, PythonTableInfo])-> Union[SectionItem, SyncItem]:
         if line["type"] == State.SECTION_NAME:
             line = cast(SectionItem, line)
             self.translation = tableMap[line["table"]]
+            return line
         if line["type"] == State.HEADER:
             line = cast(SyncItem, line)
             self.cols = line["data"]
+            return line
         if line["type"] == State.ROWS:
             line = cast(SyncItem, line)
             cols = []

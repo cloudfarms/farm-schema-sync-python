@@ -5,4 +5,3 @@ class Dialect(str,Enum):
     MYSQL = "mysql"
     POSTGRES = "postgres"
     MSSQL = "mssql"
-    PYTHON = "python"

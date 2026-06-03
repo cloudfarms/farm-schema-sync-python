@@ -83,11 +83,11 @@ class SqliteGenerator(SqlGenerator):
         ' "customers_id", "internal_name")'
         f' VALUES ({', '.join(placeholders)})'
         ' ON CONFLICT ("id") DO UPDATE SET'
-        ' "name" = excluded.name,'
-        ' "parent_id" = excluded.parent_id,'
-        ' "external_id" = excluded.external_id,'
-        ' "customers_id" = excluded.customers_id,'
-        ' "internal_name" = excluded.internal_name')
+        ' "name" = excluded."name",'
+        ' "parent_id" = excluded."parent_id",'
+        ' "external_id" = excluded."external_id",'
+        ' "customers_id" = excluded."customers_id",'
+        ' "internal_name" = excluded."internal_name"')
 
 
     def getFarmInsertQuery(self) -> str:

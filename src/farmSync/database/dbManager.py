@@ -21,6 +21,7 @@ Connection = Union[sqlite3.Connection, psycopg2.extensions.connection,
                    MySQLConnectionAbstract, PooledMySQLConnection, mssql_python.Connection]
 Cursor = Union[sqlite3.Cursor, psycopg2.extensions.cursor,
                MySQLCursorAbstract, mssql_python.Cursor]
+
 class DbManager:
 
     def __init__(self, config: Union[ServerDbConfig, SqliteDbConfig], dialect: Dialect) -> None:
@@ -32,6 +33,7 @@ class DbManager:
         self._upsert = self._getUpsertFunc(dialect)
         self.typeCache: dict[str, dict[str, str]] = {}
         self.pkCache: dict[str, list[str]] = {}
+        self.MAX_BATCH = 5000 # some dialects have a limit to the amount of parameters
     
     def _establishConnection(self, dialect: Dialect, config: Union[ServerDbConfig, SqliteDbConfig]
                              ) -> tuple[Connection, Cursor, Generator]:
@@ -127,7 +129,7 @@ class DbManager:
             self.cursor.execute(FARM_DDL)
         except Exception as e:
             self.conn.rollback()
-            raise Exception(f"Failed to create table holding: {e}")
+            raise Exception(f"Failed to create table farm: {e}")
 
         holdingInsertSql = self.generator.getHoldingInsertQuery() 
         holdingsUpserted = 0
@@ -208,19 +210,19 @@ class DbManager:
             if item["type"] == State.ROWS:
                 item = cast(SyncItem, item)
                 batch.append(item["data"])
-                if len(batch) >= 5000:
+                if len(batch) >= self.MAX_BATCH:
                     batch = self._flushBatch(tableName, operation, sections, batch)
                 continue
         self._flushBatch(tableName, operation, sections, batch)
         self.conn.commit()
     
     def _flushBatch(self, tableName: Optional[str], operation: Optional[CsvOperation],
-                    sections: Optional[list[str]], batch: list[tuple]):
+                    sections: Optional[list[str]], batch: list[tuple]) -> list:
         """
             Applies the data changes and clears the batch. 
         """
         if len(batch) == 0:
-            return batch
+            return []
         if tableName is not None and operation is not None and sections is not None:
             self._applyDataChange(tableName, operation, sections, batch)
             return []
@@ -311,7 +313,7 @@ class DbManager:
         sql = f"DELETE FROM {self.generator._quoteIdent(tableName)} WHERE {' AND '.join(whereClauses)}"
         if self.dialect == Dialect.SQLITE:
             # sqlite has a limit of 1000 parameters
-            chunkSize = 990 // max(1, len(sections))
+            chunkSize = max(1,990 // len(sections))
             for i in range(0, len(values), chunkSize):
                 self.cursor.executemany(sql, values[i:i + chunkSize]) # type: ignore
         else:

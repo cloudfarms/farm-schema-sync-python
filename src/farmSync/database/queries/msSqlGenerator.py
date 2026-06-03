@@ -50,7 +50,7 @@ class MsSqlGenerator(SqlGenerator):
 
         return query, (tableName,), (0,1)
 
-    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[str]:
+    def getAddColQueries(self, table: TableInfo, existing: list[str]) -> list[tuple[str, str]]:
         queries = []
         for col in table.columns:
             if col.name not in existing:
