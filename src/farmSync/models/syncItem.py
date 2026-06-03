@@ -1,6 +1,6 @@
 from typing import TypedDict
-from my_app.enums import State
+from farmSync.core.enums import State
 
 class SyncItem(TypedDict):
     type: State
-    data: list
+    data: tuple

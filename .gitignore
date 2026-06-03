@@ -1,7 +1,9 @@
 .env
+.env-test
 notes.*
 .vscode/
 *.db
 venv/
 __pycache__/
 **/*.egg-info/
+*db-journal

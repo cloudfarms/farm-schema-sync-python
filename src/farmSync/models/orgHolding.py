@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pydantic import BaseModel
-from my_app.models import OrgFarm
+from farmSync.models import OrgFarm
 from typing import Optional
 
 class OrgHolding(BaseModel):

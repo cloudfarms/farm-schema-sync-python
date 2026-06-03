@@ -1,0 +1,136 @@
+from farmSync.models import OrgHolding, HoldingRow, FarmRow, TableInfo
+from farmSync.models import PythonColumnInfo, PythonTableInfo 
+from farmSync.core.enums import Dialect
+from farmSync.core.dbMappingTypes import MYSQL_TYPES, POSTGRES_TYPES, SQLITE_TYPES
+from farmSync.core.dbMappingTypes import PYTHON_TYPES, MSSQL_TYPES
+from typing import Optional, Any
+from io import StringIO
+from datetime import datetime, time
+
+class Transforms:
+    """
+        Handles other logic, such as transformation of data 
+    """
+    @staticmethod
+    def flattenHoldings(holdings: list[OrgHolding], parentId: Optional[int]) -> list[HoldingRow]:
+        rows = []
+        for holding in holdings:
+            row = HoldingRow.model_validate({"id": holding.id, "name": holding.name,
+                                             "parentId": parentId, "externalId": holding.externalId,
+                                             "customersId": holding.customersId,
+                                            "internalName": holding.internalName})
+            rows.append(row)
+            if holding.subholdings is not None:
+                rows.extend(Transforms.flattenHoldings(holding.subholdings, holding.id))
+        return rows
+    
+    @staticmethod
+    def collectFarms(holdings: list[OrgHolding]) -> list[FarmRow]:
+        rows = []
+        for holding in holdings:
+            if holding.farms is None:
+                continue
+            for farm in holding.farms:
+                row = FarmRow.model_validate({"id": farm.id, "name": farm.name,
+                                                "holdingId": holding.id,"farmType": farm.farmType, 
+                                                "timeZone": farm.timeZone,
+                                                "externalId": farm.externalId,
+                                                "customersId": farm.customersId,
+                                                "internalName": farm.internalName})
+                rows.append(row)
+            if holding.subholdings is not None:
+                rows.extend(Transforms.collectFarms(holding.subholdings))
+        return rows
+
+    @staticmethod
+    def parseCsvLine(line: str, isContinue: bool,
+                     oldParams: Optional[list[str]]) -> tuple[list[str], bool]:
+        """
+            Parses lines from csv correctly including multiple line strings
+        """
+        parameters = []
+        buffer = StringIO()
+        if isContinue:
+            if oldParams is None:
+                raise Exception("Old parameter list is empty. It must contain some values")
+            buffer.write(oldParams[-1])
+            parameters = oldParams[:-1]
+
+        isInQuotes = isContinue        
+        for i, ch in enumerate(line):
+            if isInQuotes:
+                if ch == "\"":
+                    if i+1 >= len(line) or line[i+1] == ",":
+                        isInQuotes = False
+                else:
+                    buffer.write(ch)
+            else:
+                if ch == "\"":
+                    isInQuotes = True
+                elif ch == ",":
+                    parameters.append(buffer.getvalue())
+                    buffer.seek(0)
+                    buffer.truncate(0)
+                    if i+1 >= len(line):
+                        parameters.append("")
+                else:
+                    buffer.write(ch)
+        if isInQuotes:
+            buffer.write("\n")
+        if len(buffer.getvalue()) > 0:
+            parameters.append(buffer.getvalue())
+        return (parameters, not isInQuotes)
+
+    @staticmethod
+    def jdbcToDialect(jdbc: int, dialect: Dialect) -> str:
+        if dialect == Dialect.SQLITE:
+            return SQLITE_TYPES.get(jdbc, "TEXT")
+        if dialect == Dialect.POSTGRES:
+            return POSTGRES_TYPES.get(jdbc, "TEXT")
+        if dialect == Dialect.MYSQL:
+            return MYSQL_TYPES.get(jdbc, "TEXT")
+        if dialect == Dialect.MSSQL:
+            return MSSQL_TYPES.get(jdbc, "NVARCHAR(MAX)")
+        raise Exception("Unknown dialect")
+    
+    @staticmethod
+    def jdbcToPython(jdbc: int) -> type:
+        return PYTHON_TYPES.get(jdbc, str)
+    
+    @staticmethod
+    def getTableMap(tables: list[TableInfo]):
+        finalTables = {}
+        for table in tables:
+            cols = {}
+            for col in table.columns:
+                colType = Transforms.jdbcToPython(col.jdbcType)
+                cols[col.name] = PythonColumnInfo(name=col.name, typeName=colType)
+            finalTables[table.name] = PythonTableInfo(name=table.name, columns=cols, key=table.key)
+        return finalTables
+
+    @staticmethod
+    def strToType(col: str, typeHint: type, dialect: Dialect)-> Any:
+        if col == "":
+            return None
+        if typeHint == str:
+            return col
+        if typeHint == int:
+            return int(col)
+        if typeHint == float:
+            return float(col)
+        if typeHint == datetime:
+            if dialect == Dialect.MYSQL:
+                return col.replace("T", " ").replace("Z", "")
+            return col 
+        if typeHint == time:
+            if dialect == Dialect.MYSQL:
+                return col.replace("Z", "")
+            return col
+        if typeHint == bool:
+            if col.lower() == "n":
+                return False
+            return True
+        if typeHint == bytes:
+            return col.encode('utf-8')
+
+        return col

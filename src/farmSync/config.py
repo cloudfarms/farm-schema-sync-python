@@ -1,7 +1,7 @@
-# load env file here properly
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from farmSync.models import ServerDbConfig
 
 load_dotenv()
 
@@ -28,4 +28,11 @@ def loadConfig() -> Config:
     clientSecret = requireEnv("CF_CLIENT_SECRET")
     )
 
-config = loadConfig()
+def loadDbConfig() -> ServerDbConfig:
+    return ServerDbConfig(
+        dbName = requireEnv("DB_NAME"),
+        dbHost = requireEnv("DB_HOST"),
+        dbPort = int(requireEnv("DB_PORT")),
+        dbUser = requireEnv("DB_USER"),
+        dbPassword = requireEnv("DB_PASSWORD")
+    )

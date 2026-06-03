@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from my_app.models import RsColumnInfo
+from farmSync.models import RsColumnInfo
 
 class TableInfo(BaseModel):
     name: str
